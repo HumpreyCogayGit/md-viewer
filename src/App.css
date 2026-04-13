@@ -6,6 +6,12 @@
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   background-color: #1e1e1e; /* Dark background similar to Obsidian */
   color: #cccccc;
+  border: none; /* Remove any default border */
+}
+
+.md-viewer-container.light {
+  background-color: #ffffff;
+  color: #333333;
 }
 
 .sidebar {
@@ -16,6 +22,11 @@
   display: flex;
   flex-direction: column;
   gap: 15px;
+}
+
+.md-viewer-container.light .sidebar {
+  background-color: #f0f0f0;
+  border-right: 1px solid #dddddd;
 }
 
 .drop-zone {
@@ -67,6 +78,11 @@
   outline: none;
 }
 
+.md-viewer-container.light .markdown-input {
+  background-color: #ffffff;
+  color: #333333;
+}
+
 .resizer {
   width: 8px;
   cursor: ew-resize;
@@ -82,11 +98,24 @@
   background-color: #1e1e1e;
 }
 
+.md-viewer-container.light .preview-area {
+  background-color: #ffffff;
+  color: #333333; /* Set default text color for light mode */
+}
+
+.md-viewer-container.light .preview-area * {
+  color: inherit; /* Ensure all elements inherit the container's text color */
+}
+
 /* Styling for rendered Markdown to look more like Obsidian */
 .preview-area h1, .preview-area h2 {
   border-bottom: 1px solid #444;
   padding-bottom: 0.3em;
   color: #ffffff;
+}
+
+.md-viewer-container.light .preview-area h1, .md-viewer-container.light .preview-area h2 {
+  color: #333333;
 }
 
 .preview-area h2 {
@@ -102,6 +131,11 @@
   font-family: 'Consolas', 'Monaco', monospace;
 }
 
+.md-viewer-container.light .preview-area code {
+  background-color: #eeeeee; /* Light background for code snippets */
+  color: #000000; /* Dark text for light mode */
+}
+
 .preview-area pre {
   background-color: #2d2d30;
   padding: 15px;
@@ -109,6 +143,39 @@
   overflow-x: auto;
 }
 
+.md-viewer-container.light .preview-area pre {
+  background-color: #f8f8f8; /* Light background for code blocks */
+  color: #333333; /* Dark text for light mode */
+}
+
 .preview-area ul, .preview-area ol {
   padding-left: 20px;
+}
+
+/* Styling for Markdown Tables */
+.preview-area table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 15px 0;
+}
+
+.preview-area th, .preview-area td {
+  border: 1px solid #444; /* Dark mode border */
+  padding: 10px;
+  text-align: left;
+}
+
+.md-viewer-container.light .preview-area th, .md-viewer-container.light .preview-area td {
+  border: 1px solid #cccccc; /* Light mode border */
+}
+
+.md-viewer-container.light .preview-area table {
+  border-collapse: collapse;
+}
+
+/* Global styles to remove outer borders */
+body, html {
+  margin: 0;
+  padding: 0;
+  overflow: hidden; /* Prevent scrollbars from appearing due to 100vh */
 }

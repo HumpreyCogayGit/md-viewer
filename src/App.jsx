@@ -4,7 +4,11 @@ import remarkGfm from 'remark-gfm';
 import './App.css';
 
 function App() {
-  const [markdownContent, setMarkdownContent] = useState('# Welcome to MDViewer\n\nThis is a simple Markdown viewer mimicking Obsidian.\n\n## Features\n*   Markdown rendering\n*   Basic styling\n\nTry editing the content or loading a file!');
+  const [theme, setTheme] = useState('dark');
+  const toggleTheme = () => {
+    setTheme((prevTheme) => (prevTheme === 'dark' ? 'light' : 'dark'));
+  };
+  const [markdownContent, setMarkdownContent] = useState('# Welcome to Speculo\n\nThis is a simple Markdown viewer.\n\n## Features\n*   Markdown rendering\n*   Basic styling\n\nTry editing the content or loading a file!');
   const [fileName, setFileName] = useState('document.md');
   const [isDragging, setIsDragging] = useState(false);
   const [dividerPosition, setDividerPosition] = useState(50); // Percentage for initial split
@@ -55,8 +59,15 @@ function App() {
   }, []);
 
   return (
-    <div className="md-viewer-container">
+    <div className={`md-viewer-container ${theme}`}>
       <div className="sidebar">
+        <button 
+          onClick={toggleTheme} 
+          className="theme-toggle"
+          aria-label="Toggle theme"
+        >
+          {theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
+        </button>
         <div 
           onDragOver={handleDragOver} 
           onDrop={handleFileDrop} 
