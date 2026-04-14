@@ -134,7 +134,7 @@ button.export-pdf:disabled {
   background-color: #1e1e1e;
   color: #cccccc;
   outline: none;
-  overflow-y: scroll;
+  overflow-y: auto;
   box-sizing: border-box;
 }
 
@@ -220,6 +220,22 @@ button.export-pdf:disabled {
   color: #333333; /* Dark text for light mode */
 }
 
+/* Blockquote styling */
+.preview-area blockquote {
+  margin: 12px 0;
+  padding: 10px 16px;
+  border-left: 3px solid #555;
+  background-color: #2a2a2a;
+  color: #cccccc;
+  font-style: italic;
+}
+
+.md-viewer-container.light .preview-area blockquote {
+  border-left: 3px solid #aaaaaa;
+  background-color: #f5f5f5;
+  color: #444444;
+}
+
 .preview-area ul, .preview-area ol {
   padding-left: 20px;
 }
@@ -246,9 +262,50 @@ button.export-pdf:disabled {
 }
 
 /* Global styles to remove outer borders */
+html {
+  font-size: 16px;
+}
+
 body, html {
   margin: 0;
   padding: 0;
   overflow: hidden; /* Prevent scrollbars from appearing due to 100vh */
+}
+
+/* Mermaid diagram styling */
+.mermaid-diagram {
+  display: flex;
+  justify-content: center;
+  margin: 16px 0;
+  overflow-x: auto;
+}
+
+.mermaid-diagram svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.mermaid-error {
+  color: #ff6b6b;
+  background: #2d2020;
+  padding: 10px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  margin: 8px 0;
+}
+
+.md-viewer-container.light .mermaid-error {
+  background: #fff0f0;
+}
+
+/* KaTeX overrides for dark mode */
+.md-viewer-container .katex {
+  color: inherit;
+}
+
+.md-viewer-container .katex-display {
+  margin: 16px 0;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 

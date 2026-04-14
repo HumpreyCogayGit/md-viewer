@@ -1,6 +1,12 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import 'katex/dist/katex.min.css';
+import katex from 'katex';
+import mermaid from 'mermaid';
+import html2canvas from 'html2canvas';
 import { marked } from 'marked';
 import pdfMake from 'pdfmake/build/pdfmake';
 import pdfFonts from 'pdfmake/build/vfs_fonts';
@@ -8,6 +14,96 @@ import './App.css';
 
 // #18: Safe vfs assignment for pdfmake v0.2+
 pdfMake.vfs = pdfFonts.pdfMake ? pdfFonts.pdfMake.vfs : pdfFonts.vfs;
+
+// Initialize mermaid with default config
+mermaid.initialize({ startOnLoad: false, theme: 'dark' });
+
+// Helper: render SVG string to a base64 PNG data URL via canvas
+// targetWidth constrains the output; scale (default 2) renders at higher res for sharpness
+function svgToDataUrl(svgString, targetWidth = 400, scale = 2) {
+  return new Promise((resolve, reject) => {
+    // Parse SVG to read native dimensions and force a target width
+    const parser = new DOMParser();
+    const svgDoc = parser.parseFromString(svgString, 'image/svg+xml');
+    const svgEl = svgDoc.querySelector('svg');
+    if (!svgEl) return reject(new Error('Invalid SVG'));
+
+    // Read native size from the SVG's width/height or viewBox
+    let nativeW = parseFloat(svgEl.getAttribute('width')) || 400;
+    let nativeH = parseFloat(svgEl.getAttribute('height')) || 300;
+    const vb = svgEl.getAttribute('viewBox');
+    if (vb) {
+      const parts = vb.split(/[\s,]+/).map(Number);
+      if (parts.length === 4) { nativeW = parts[2]; nativeH = parts[3]; }
+    }
+
+    const ratio = nativeH / nativeW;
+    const drawW = targetWidth;
+    const drawH = targetWidth * ratio;
+
+    // Set explicit dimensions on the SVG element
+    svgEl.setAttribute('width', String(drawW));
+    svgEl.setAttribute('height', String(drawH));
+    if (!vb) svgEl.setAttribute('viewBox', `0 0 ${nativeW} ${nativeH}`);
+
+    const serialized = new XMLSerializer().serializeToString(svgEl);
+    const svgData = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(serialized)));
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = drawW * scale;
+      canvas.height = drawH * scale;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      resolve(canvas.toDataURL('image/png'));
+    };
+    img.onerror = reject;
+    img.src = svgData;
+  });
+}
+
+// Helper: render a KaTeX expression to a base64 PNG data URL
+async function katexToDataUrl(expression, displayMode = true) {
+  const container = document.createElement('div');
+  container.style.cssText = 'position:absolute;left:-9999px;top:-9999px;background:#fff;padding:16px;';
+  container.innerHTML = katex.renderToString(expression, {
+    displayMode,
+    throwOnError: false,
+    output: 'html',
+  });
+  document.body.appendChild(container);
+  try {
+    const canvas = await html2canvas(container, { backgroundColor: '#ffffff', scale: 2 });
+    return canvas.toDataURL('image/png');
+  } finally {
+    document.body.removeChild(container);
+  }
+}
+
+// Mermaid diagram component for ReactMarkdown code blocks
+let mermaidCounter = 0;
+function MermaidDiagram({ children }) {
+  const containerRef = useRef(null);
+  const [svg, setSvg] = useState('');
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    const code = String(children).trim();
+    const id = `mermaid-${Date.now()}-${mermaidCounter++}`;
+    let cancelled = false;
+    mermaid.render(id, code).then(({ svg }) => {
+      if (!cancelled) setSvg(svg);
+    }).catch((err) => {
+      if (!cancelled) setError(err.message || 'Invalid Mermaid syntax');
+    });
+    return () => { cancelled = true; };
+  }, [children]);
+
+  if (error) return <pre className="mermaid-error">{error}</pre>;
+  return <div className="mermaid-diagram" ref={containerRef} dangerouslySetInnerHTML={{ __html: svg }} />;
+}
 
 function App() {
   const [theme, setTheme] = useState('dark');
@@ -76,6 +172,8 @@ console.log(greet('Speculo'));
 | Scroll Sync     | ✅ Ready     |
 | Drag & Drop     | ✅ Ready     |
 | Theme Toggle    | ✅ Ready     |
+| LaTeX Math      | ✅ Ready     |
+| Mermaid Diagrams| ✅ Ready     |
 | Syntax Highlight| 🔜 Planned  |
 
 ### Horizontal Rule
@@ -85,6 +183,28 @@ console.log(greet('Speculo'));
 ### Strikethrough
 
 ~~This text is struck through.~~
+
+### Math (LaTeX)
+
+Inline math: $E = mc^2$
+
+Block math:
+
+$$
+\\int_{-\\infty}^{\\infty} e^{-x^2} dx = \\sqrt{\\pi}
+$$
+
+The quadratic formula: $x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}$
+
+### Mermaid Diagram
+
+\`\`\`mermaid
+graph TD
+    A[Start] --> B{Is it working?}
+    B -- Yes --> C[Great!]
+    B -- No --> D[Debug]
+    D --> B
+\`\`\`
 
 ---
 
@@ -116,6 +236,11 @@ console.log(greet('Speculo'));
       cursorPosRef.current = null;
     }
   }, [markdownContent]);
+
+  // Sync mermaid theme with app theme
+  useEffect(() => {
+    mermaid.initialize({ startOnLoad: false, theme: theme === 'dark' ? 'dark' : 'default' });
+  }, [theme]);
 
   // #14: Strip markdown syntax before counting words
   const { wordCount, charCount } = (() => {
@@ -282,21 +407,23 @@ console.log(greet('Speculo'));
   // strikethrough, inline code, links, autolinks, and plain text
   const parseInline = (text) => {
     const parts = [];
-    // Order: bold+italic, bold, italic, strikethrough, code, link, autolink, plain
-    const regex = /(\*\*\*(.+?)\*\*\*|___(.+?)___|\*\*(.+?)\*\*|__(.+?)__|\*(.+?)\*|_(.+?)_|~~(.+?)~~|`(.+?)`|\[([^\]]+)\]\(([^)]+)\)|<(https?:\/\/[^>]+)>|([^*_`~\[<]+))/gs;
+    // Order: inline math ($$...$$, $...$), bold+italic, bold, italic, strikethrough, code, link, autolink, plain
+    const regex = /(\$\$([^$]+?)\$\$|\$([^$]+?)\$|\*\*\*(.+?)\*\*\*|___(.+?)___|\*\*(.+?)\*\*|__(.+?)__|\*(.+?)\*|_(.+?)_|~~(.+?)~~|`(.+?)`|\[([^\]]+)\]\(([^)]+)\)|<(https?:\/\/[^>]+)>|([^*_`~\[$<]+))/gs;
     let match;
     while ((match = regex.exec(text)) !== null) {
-      if (match[2])       parts.push({ text: match[2], bold: true, italics: true });
-      else if (match[3])  parts.push({ text: match[3], bold: true, italics: true });
-      else if (match[4])  parts.push({ text: match[4], bold: true });
-      else if (match[5])  parts.push({ text: match[5], bold: true });
-      else if (match[6])  parts.push({ text: match[6], italics: true });
-      else if (match[7])  parts.push({ text: match[7], italics: true });
-      else if (match[8])  parts.push({ text: match[8], decoration: 'lineThrough', color: '#888' });
-      else if (match[9])  parts.push({ text: match[9], fontSize: 10, background: '#f5f5f5' });
-      else if (match[10]) parts.push({ text: match[10], link: match[11], color: 'blue', decoration: 'underline' });
-      else if (match[12]) parts.push({ text: match[12], link: match[12], color: 'blue', decoration: 'underline' });
-      else if (match[13]) parts.push({ text: match[13] });
+      if (match[2])       parts.push({ text: match[2].trim(), fontSize: 10, italics: true, color: '#6a0dad', background: '#f3e8ff' });
+      else if (match[3])  parts.push({ text: match[3].trim(), fontSize: 10, italics: true, color: '#6a0dad', background: '#f3e8ff' });
+      else if (match[4])  parts.push({ text: match[4], bold: true, italics: true });
+      else if (match[5])  parts.push({ text: match[5], bold: true, italics: true });
+      else if (match[6])  parts.push({ text: match[6], bold: true });
+      else if (match[7])  parts.push({ text: match[7], bold: true });
+      else if (match[8])  parts.push({ text: match[8], italics: true });
+      else if (match[9])  parts.push({ text: match[9], italics: true });
+      else if (match[10]) parts.push({ text: match[10], decoration: 'lineThrough', color: '#888' });
+      else if (match[11]) parts.push({ text: match[11], fontSize: 10, background: '#f5f5f5' });
+      else if (match[12]) parts.push({ text: match[12], link: match[13], color: 'blue', decoration: 'underline' });
+      else if (match[14]) parts.push({ text: match[14], link: match[14], color: 'blue', decoration: 'underline' });
+      else if (match[15]) parts.push({ text: match[15] });
     }
     return parts.length ? parts : [{ text }];
   };
@@ -308,7 +435,10 @@ console.log(greet('Speculo'));
       const tokens = marked.lexer(markdownContent, { gfm: true });
       const content = [];
 
-    tokens.forEach((token) => {
+      // Helper: detect block math ($$...$$) in paragraph text
+      const blockMathRegex = /^\$\$([\s\S]+?)\$\$$/;
+
+    for (const token of tokens) {
       switch (token.type) {
         case 'heading':
           content.push({
@@ -318,13 +448,34 @@ console.log(greet('Speculo'));
           });
           break;
 
-        case 'paragraph':
-          content.push({
-            text: parseInline(token.text),
-            style: 'body',
-            margin: [0, 0, 0, 8],
-          });
+        case 'paragraph': {
+          // Check if the entire paragraph is a block math expression
+          const mathMatch = blockMathRegex.exec(token.raw.trim());
+          if (mathMatch) {
+            try {
+              const dataUrl = await katexToDataUrl(mathMatch[1].trim(), true);
+              content.push({
+                image: dataUrl,
+                width: 200,
+                alignment: 'center',
+                margin: [0, 6, 0, 6],
+              });
+            } catch {
+              content.push({
+                text: token.raw.trim(),
+                style: 'code',
+                margin: [0, 4, 0, 8],
+              });
+            }
+          } else {
+            content.push({
+              text: parseInline(token.text),
+              style: 'body',
+              margin: [0, 0, 0, 8],
+            });
+          }
           break;
+        }
 
         case 'list': {
           // Recursive helper to handle nested lists and task list checkboxes
@@ -354,18 +505,42 @@ console.log(greet('Speculo'));
         }
 
         case 'code':
-          content.push({
-            table: {
-              widths: ['*'],
-              body: [[{
-                text: token.text,
-                style: 'code',
-                border: [false, false, false, false],
-              }]],
-            },
-            fillColor: '#f5f5f5',
-            margin: [0, 0, 0, 10],
-          });
+          if (token.lang === 'mermaid') {
+            try {
+              const mermaidId = `pdf-mermaid-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+              // Temporarily use light theme for PDF rendering
+              mermaid.initialize({ startOnLoad: false, theme: 'default' });
+              const { svg } = await mermaid.render(mermaidId, token.text);
+              const dataUrl = await svgToDataUrl(svg, 220, 2);
+              content.push({
+                image: dataUrl,
+                width: 220,
+                alignment: 'center',
+                margin: [0, 6, 0, 8],
+              });
+            } catch {
+              content.push({
+                text: '[Mermaid Diagram — could not render]',
+                style: 'body',
+                italics: true,
+                color: '#666',
+                margin: [0, 4, 0, 8],
+              });
+            }
+          } else {
+            content.push({
+              table: {
+                widths: ['*'],
+                body: [[{
+                  text: token.text,
+                  style: 'code',
+                  border: [false, false, false, false],
+                }]],
+              },
+              fillColor: '#f5f5f5',
+              margin: [0, 0, 0, 10],
+            });
+          }
           break;
 
         case 'blockquote': {
@@ -382,10 +557,17 @@ console.log(greet('Speculo'));
           } else {
             bqParts.push(...parseInline(token.text.replace(/^>\s?/gm, '')));
           }
+          // Left border bar using table with noBorders layout so fillColor shows
           content.push({
-            text: bqParts,
-            style: 'blockquote',
-            margin: [12, 0, 0, 8],
+            table: {
+              widths: [2, '*'],
+              body: [[
+                { text: ' ', fillColor: '#aaaaaa' },
+                { text: bqParts, style: 'blockquote', margin: [8, 4, 0, 4] },
+              ]],
+            },
+            layout: 'noBorders',
+            margin: [0, 4, 0, 8],
           });
           break;
         }
@@ -467,7 +649,7 @@ console.log(greet('Speculo'));
         default:
           break;
       }
-    });
+    }
 
     const docDefinition = {
       content,
@@ -492,6 +674,8 @@ console.log(greet('Speculo'));
       .createPdf(docDefinition)
       .download(fileName.replace(/\.md$/, '') + '.pdf');
     } finally {
+      // Restore mermaid theme to match app
+      mermaid.initialize({ startOnLoad: false, theme: theme === 'dark' ? 'dark' : 'default' });
       setIsExporting(false);
     }
   }, [markdownContent, fileName]);
@@ -576,7 +760,21 @@ console.log(greet('Speculo'));
 
           {/* #6: Bidirectional scroll sync */}
           <div className="preview-area" ref={previewRef} onScroll={handlePreviewScroll}>
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{markdownContent}</ReactMarkdown>
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm, remarkMath]}
+              rehypePlugins={[rehypeKatex]}
+              components={{
+                code({ node, inline, className, children, ...props }) {
+                  const match = /language-(\w+)/.exec(className || '');
+                  if (!inline && match && match[1] === 'mermaid') {
+                    return <MermaidDiagram>{children}</MermaidDiagram>;
+                  }
+                  return <code className={className} {...props}>{children}</code>;
+                }
+              }}
+            >
+              {markdownContent}
+            </ReactMarkdown>
           </div>
         </div>
       </div>
