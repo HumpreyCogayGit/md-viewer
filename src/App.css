@@ -86,6 +86,22 @@
   justify-content: center;
   height: 70px;
   font-size: 0.85rem;
+  min-width: 0; /* Allow flex item to shrink below content size */
+  max-width: 200px;
+}
+
+/* #17: Truncate long filenames */
+.file-info .file-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+/* #12: Disabled state for export button */
+button.export-pdf:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 .editor-area {
   display: flex;
@@ -103,6 +119,8 @@
 .markdown-input-container {
   flex-basis: 50%;
   flex-shrink: 0;
+  overflow: hidden;
+  height: 100%;
 }
 
 .markdown-input {
@@ -116,13 +134,13 @@
   background-color: #1e1e1e;
   color: #cccccc;
   outline: none;
-  overflow-y: auto; /* Add scrollbar for input pane */
+  overflow-y: scroll;
+  box-sizing: border-box;
 }
 
 .md-viewer-container.light .markdown-input {
   background-color: #ffffff;
   color: #333333;
-  overflow-y: auto; /* Add scrollbar for input pane */
 }
 
 .preview-area {
@@ -233,3 +251,4 @@ body, html {
   padding: 0;
   overflow: hidden; /* Prevent scrollbars from appearing due to 100vh */
 }
+

@@ -6,70 +6,184 @@ import pdfMake from 'pdfmake/build/pdfmake';
 import pdfFonts from 'pdfmake/build/vfs_fonts';
 import './App.css';
 
-pdfMake.vfs = pdfFonts.vfs;
+// #18: Safe vfs assignment for pdfmake v0.2+
+pdfMake.vfs = pdfFonts.pdfMake ? pdfFonts.pdfMake.vfs : pdfFonts.vfs;
 
 function App() {
   const [theme, setTheme] = useState('dark');
   const toggleTheme = () => {
     setTheme((prevTheme) => (prevTheme === 'dark' ? 'light' : 'dark'));
   };
-  const [markdownContent, setMarkdownContent] = useState('# Welcome to Speculo\n\nThis is a simple Markdown Viewer/Editor.\n\n## Features\n*   Markdown rendering\n*   Basic styling\n\nTry editing the content or loading a file!');
+  const [markdownContent, setMarkdownContent] = useState(`# Welcome to Speculo
+
+Yet another Markdown viewer and editor, but this time this is built by me =P.
+
+---
+
+## Markdown Showcase
+
+### Text Formatting
+
+This is **bold**, this is *italic*, and this is ***bold and italic***.
+
+Inline \`code\` looks like this.
+
+### Blockquote
+
+> "Simplicity is the ultimate sophistication." — Leonardo da Vinci
+
+### Links & Images
+
+Visit [GitHub](https://github.com) for more.
+
+![Placeholder image](https://placehold.co/400x200)
+
+### Ordered List
+
+1. Open a Markdown file
+2. Edit in the left pane
+3. Preview in the right pane
+4. Export when ready
+
+### Unordered List
+
+- Supports GFM (GitHub Flavored Markdown)
+- Tables, task lists, and strikethrough
+- Fenced code blocks with syntax tokens
+
+### Task List
+
+- [x] Live preview
+- [x] Scroll sync
+- [x] PDF export
+- [ ] Syntax highlighting (coming soon)
+
+### Code Block
+
+\`\`\`js
+function greet(name) {
+  return \`Hello, \${name}!\`;
+}
+console.log(greet('Speculo'));
+\`\`\`
+
+### Table
+
+| Feature         | Status      |
+|-----------------|-------------|
+| Live Preview    | ✅ Ready     |
+| PDF Export      | ✅ Ready     |
+| Scroll Sync     | ✅ Ready     |
+| Drag & Drop     | ✅ Ready     |
+| Theme Toggle    | ✅ Ready     |
+| Syntax Highlight| 🔜 Planned  |
+
+### Horizontal Rule
+
+---
+
+### Strikethrough
+
+~~This text is struck through.~~
+
+---
+
+*Start editing above or load your own file to get started!*
+`);
   const [fileName, setFileName] = useState('document.md');
-  const [isDragging, setIsDragging] = useState(false);
-  const [isSyncing, setIsSyncing] = useState(false); // New state for sync feature
-  const [copyStatus, setCopyStatus] = useState(''); // State for copy confirmation message
-  const [dividerPosition, setDividerPosition] = useState(50); // Percentage for initial split
+  // #1: Split isDragging into two separate states
+  const [isResizerDragging, setIsResizerDragging] = useState(false);
+  const [isFileDragging, setIsFileDragging] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [copyStatus, setCopyStatus] = useState('');
+  const [dividerPosition, setDividerPosition] = useState(50);
+  // #12: Add isExporting state for PDF export button
+  const [isExporting, setIsExporting] = useState(false);
   const textareaRef = useRef(null);
   const previewRef = useRef(null);
+  // #15: Use useRef for file input instead of document.getElementById
+  const fileInputRef = useRef(null);
+  // #5: Ref to restore cursor position after controlled update
+  const cursorPosRef = useRef(null);
+  // Flag to prevent scroll feedback loop
+  const isScrollSyncingRef = useRef(false);
 
-  // Calculate word and character counts whenever markdownContent changes
+  // #5: Restore cursor position after state update re-renders the textarea
+  useEffect(() => {
+    if (cursorPosRef.current !== null && textareaRef.current) {
+      textareaRef.current.selectionStart = cursorPosRef.current;
+      textareaRef.current.selectionEnd = cursorPosRef.current;
+      cursorPosRef.current = null;
+    }
+  }, [markdownContent]);
+
+  // #14: Strip markdown syntax before counting words
   const { wordCount, charCount } = (() => {
     const text = markdownContent;
     const charCount = text.length;
-    // Simple word count: split by whitespace and filter out empty strings
-    const wordCount = text.trim() === '' ? 0 : text.trim().split(/\s+/).length;
+    const plainText = text.replace(/[#*_`>~\[\]!|]/g, '');
+    const wordCount = plainText.trim() === '' ? 0 : plainText.trim().split(/\s+/).length;
     return { wordCount, charCount };
   })();
 
+  // #6-7: Ratio-based scroll sync (textarea → preview)
   const handleScroll = useCallback(() => {
     if (!isSyncing || !textareaRef.current || !previewRef.current) return;
-    
+    if (isScrollSyncingRef.current) return;
+    isScrollSyncingRef.current = true;
+
     const textarea = textareaRef.current;
     const preview = previewRef.current;
-    
-    // Synchronize vertical scroll
-    preview.scrollTop = textarea.scrollTop;
-    // Synchronize horizontal scroll (though less likely needed for MD)
-    preview.scrollLeft = textarea.scrollLeft;
+    const maxTextareaScroll = textarea.scrollHeight - textarea.clientHeight;
+    if (maxTextareaScroll > 0) {
+      const scrollRatio = textarea.scrollTop / maxTextareaScroll;
+      preview.scrollTop = scrollRatio * (preview.scrollHeight - preview.clientHeight);
+    }
+
+    isScrollSyncingRef.current = false;
+  }, [isSyncing]);
+
+  // #6: Reverse sync (preview → textarea)
+  const handlePreviewScroll = useCallback(() => {
+    if (!isSyncing || !textareaRef.current || !previewRef.current) return;
+    if (isScrollSyncingRef.current) return;
+    isScrollSyncingRef.current = true;
+
+    const textarea = textareaRef.current;
+    const preview = previewRef.current;
+    const maxPreviewScroll = preview.scrollHeight - preview.clientHeight;
+    if (maxPreviewScroll > 0) {
+      const scrollRatio = preview.scrollTop / maxPreviewScroll;
+      textarea.scrollTop = scrollRatio * (textarea.scrollHeight - textarea.clientHeight);
+    }
+
+    isScrollSyncingRef.current = false;
   }, [isSyncing]);
 
   const handleContentChange = (e) => {
     setMarkdownContent(e.target.value);
   };
 
-  // Feature 2: Handle Tab key press
+  // #5: Handle Tab without direct DOM mutation
   const handleKeyDown = useCallback((e) => {
     if (e.key === 'Tab') {
       e.preventDefault();
       const start = e.target.selectionStart;
       const end = e.target.selectionEnd;
-      const value = e.target.value;
-      
-      // Insert 4 spaces for indentation
-      const newText = value.substring(0, start) + '    ' + value.substring(end);
-      
-      e.target.value = newText;
-      
-      // Move cursor past the inserted spaces
-      e.target.selectionStart = e.target.selectionEnd = start + 4;
-      
-      setMarkdownContent(newText);
+
+      setMarkdownContent((prev) => {
+        const newText = prev.substring(0, start) + '    ' + prev.substring(end);
+        cursorPosRef.current = start + 4;
+        return newText;
+      });
     }
   }, []);
 
+  // #3: Clear isFileDragging on drop; #13: Error for non-.md files
   const handleFileDrop = useCallback((e) => {
     e.preventDefault();
     e.stopPropagation();
+    setIsFileDragging(false);
     const file = e.dataTransfer.files[0];
     if (file && file.name.endsWith('.md')) {
       const reader = new FileReader();
@@ -78,35 +192,44 @@ function App() {
         setFileName(file.name);
       };
       reader.readAsText(file);
+    } else if (file) {
+      setCopyStatus('Only .md files are supported.');
+      setTimeout(() => setCopyStatus(''), 3000);
     }
   }, []);
 
+  // #1: Only set file drag state
   const handleDragOver = useCallback((e) => {
     e.preventDefault();
     e.stopPropagation();
-    setIsDragging(true); // Feature 3: Set dragging state
+    setIsFileDragging(true);
   }, []);
 
-  const handleMouseMove = useCallback((e) => {
-    if (!isDragging) return;
-    const container = e.currentTarget; // Now listening on content-wrapper
-    const containerRect = container.getBoundingClientRect();
-    
-    // Calculate new percentage position based on mouse X relative to the content wrapper
-    let newX = e.clientX - containerRect.left;
-    
-    // Calculate the width of the input container based on its current flex basis percentage
-    // This is tricky with pure CSS flexbox resizing, so we calculate based on the wrapper's width.
-    let newPercentage = (newX / containerRect.width) * 100;
-    
-    // Clamp percentage between 10% and 90% to ensure both panes are visible
-    newPercentage = Math.max(10, Math.min(90, newPercentage));
-    
-    setDividerPosition(newPercentage);
-  }, [isDragging]);
+  // #2: Reset file drag state when cursor leaves drop zone
+  const handleDragLeave = useCallback((e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsFileDragging(false);
+  }, []);
 
-  const handleMouseUp = useCallback(() => {
-    setIsDragging(false); // Feature 3: Clear dragging state
+  // #1: Use isResizerDragging instead of isDragging
+  const handleMouseMove = useCallback((e) => {
+    if (!isResizerDragging) return;
+    const container = e.currentTarget;
+    const containerRect = container.getBoundingClientRect();
+    let newX = e.clientX - containerRect.left;
+    let newPercentage = (newX / containerRect.width) * 100;
+    newPercentage = Math.max(10, Math.min(90, newPercentage));
+    setDividerPosition(newPercentage);
+  }, [isResizerDragging]);
+
+  // #8 & #19: Attach mouseup to window with useEffect cleanup
+  useEffect(() => {
+    const handleMouseUp = () => {
+      setIsResizerDragging(false);
+    };
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => window.removeEventListener('mouseup', handleMouseUp);
   }, []);
 
   // Feature 1: Replaced alert with status message
@@ -139,6 +262,7 @@ function App() {
     URL.revokeObjectURL(url);
   }, [markdownContent, fileName]);
 
+  // #13: Error feedback for wrong file type
   const handleFileSelect = useCallback((e) => {
     const file = e.target.files[0];
     if (file && file.name.endsWith('.md')) {
@@ -148,27 +272,41 @@ function App() {
         setFileName(file.name);
       };
       reader.readAsText(file);
+    } else if (file) {
+      setCopyStatus('Only .md files are supported.');
+      setTimeout(() => setCopyStatus(''), 3000);
     }
   }, []);
 
-  // Helper: convert marked inline tokens → pdfmake text array (bold, italic, code)
+  // parseInline – handles bold, italic, bold+italic (both * and _ syntax),
+  // strikethrough, inline code, links, autolinks, and plain text
   const parseInline = (text) => {
-    // Simple inline regex fallback for bold/italic/code
     const parts = [];
-    const regex = /(\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`|(.+?))/gs;
+    // Order: bold+italic, bold, italic, strikethrough, code, link, autolink, plain
+    const regex = /(\*\*\*(.+?)\*\*\*|___(.+?)___|\*\*(.+?)\*\*|__(.+?)__|\*(.+?)\*|_(.+?)_|~~(.+?)~~|`(.+?)`|\[([^\]]+)\]\(([^)]+)\)|<(https?:\/\/[^>]+)>|([^*_`~\[<]+))/gs;
     let match;
     while ((match = regex.exec(text)) !== null) {
-      if (match[2]) parts.push({ text: match[2], bold: true });
-      else if (match[3]) parts.push({ text: match[3], italics: true });
-      else if (match[4]) parts.push({ text: match[4], fontSize: 10, background: '#f5f5f5' }); // Removed font: 'Courier'
-      else if (match[5]) parts.push({ text: match[5] });
+      if (match[2])       parts.push({ text: match[2], bold: true, italics: true });
+      else if (match[3])  parts.push({ text: match[3], bold: true, italics: true });
+      else if (match[4])  parts.push({ text: match[4], bold: true });
+      else if (match[5])  parts.push({ text: match[5], bold: true });
+      else if (match[6])  parts.push({ text: match[6], italics: true });
+      else if (match[7])  parts.push({ text: match[7], italics: true });
+      else if (match[8])  parts.push({ text: match[8], decoration: 'lineThrough', color: '#888' });
+      else if (match[9])  parts.push({ text: match[9], fontSize: 10, background: '#f5f5f5' });
+      else if (match[10]) parts.push({ text: match[10], link: match[11], color: 'blue', decoration: 'underline' });
+      else if (match[12]) parts.push({ text: match[12], link: match[12], color: 'blue', decoration: 'underline' });
+      else if (match[13]) parts.push({ text: match[13] });
     }
     return parts.length ? parts : [{ text }];
   };
 
-  const handleExportPdf = useCallback(() => {
-    const tokens = marked.lexer(markdownContent, { gfm: true });
-    const content = [];
+  // #12: Add loading/disabled state on Export PDF button
+  const handleExportPdf = useCallback(async () => {
+    setIsExporting(true);
+    try {
+      const tokens = marked.lexer(markdownContent, { gfm: true });
+      const content = [];
 
     tokens.forEach((token) => {
       switch (token.type) {
@@ -188,15 +326,32 @@ function App() {
           });
           break;
 
-        case 'list':
-          content.push({
-            [token.ordered ? 'ol' : 'ul']: token.items.map((item) => ({
-              text: parseInline(item.text),
-              style: 'body',
-            })),
-            margin: [0, 0, 0, 8],
-          });
+        case 'list': {
+          // Recursive helper to handle nested lists and task list checkboxes
+          const buildList = (listToken) => {
+            const items = listToken.items.map((item) => {
+              const prefix = item.task ? (item.checked ? '☑ ' : '☐ ') : '';
+              const inlineContent = parseInline(prefix + (item.text || ''));
+
+              // Check for nested sub-lists inside this item's tokens
+              const nestedList = item.tokens?.find((t) => t.type === 'list');
+              if (nestedList) {
+                return [
+                  { text: inlineContent, style: 'body' },
+                  buildList(nestedList),
+                ];
+              }
+              return { text: inlineContent, style: 'body' };
+            });
+
+            return {
+              [listToken.ordered ? 'ol' : 'ul']: items,
+              margin: [0, 0, 0, 8],
+            };
+          };
+          content.push(buildList(token));
           break;
+        }
 
         case 'code':
           content.push({
@@ -213,13 +368,27 @@ function App() {
           });
           break;
 
-        case 'blockquote':
+        case 'blockquote': {
+          // Walk sub-tokens for formatted blockquote content
+          const bqParts = [];
+          if (token.tokens && token.tokens.length) {
+            token.tokens.forEach((sub) => {
+              if (sub.type === 'paragraph') {
+                bqParts.push(...parseInline(sub.text));
+              } else if (sub.text) {
+                bqParts.push(...parseInline(sub.text));
+              }
+            });
+          } else {
+            bqParts.push(...parseInline(token.text.replace(/^>\s?/gm, '')));
+          }
           content.push({
-            text: token.text.replace(/^>\s?/gm, ''),
+            text: bqParts,
             style: 'blockquote',
             margin: [12, 0, 0, 8],
           });
           break;
+        }
 
         case 'hr':
           content.push({
@@ -271,6 +440,30 @@ function App() {
           break;
         }
 
+        // #10: Image token – render alt text since pdfMake can't fetch remote images inline
+        case 'image':
+          content.push({
+            text: `[Image: ${token.text || token.href}]`,
+            style: 'body',
+            italics: true,
+            color: '#666',
+            margin: [0, 0, 0, 8],
+          });
+          break;
+
+        // HTML blocks – strip tags and render as plain text fallback
+        case 'html': {
+          const stripped = token.text.replace(/<[^>]*>/g, '').trim();
+          if (stripped) {
+            content.push({
+              text: stripped,
+              style: 'body',
+              margin: [0, 0, 0, 8],
+            });
+          }
+          break;
+        }
+
         default:
           break;
       }
@@ -287,7 +480,7 @@ function App() {
         h5: { fontSize: 13, bold: true },
         h6: { fontSize: 11, bold: true },
         body: { fontSize: 11, lineHeight: 1.5, color: '#222' },
-        code: { font: 'Roboto', fontSize: 9.5, color: '#333' }, // Changed font to Roboto to match default
+        code: { font: 'Roboto', fontSize: 9.5, color: '#333' },
         blockquote: { fontSize: 11, italics: true, color: '#555' },
         tableHeader: { fontSize: 10, bold: true, color: '#111' },
         tableCell: { fontSize: 10, color: '#333', lineHeight: 1.4 },
@@ -298,21 +491,25 @@ function App() {
     pdfMake
       .createPdf(docDefinition)
       .download(fileName.replace(/\.md$/, '') + '.pdf');
+    } finally {
+      setIsExporting(false);
+    }
   }, [markdownContent, fileName]);
 
   return (
     <div className={`md-viewer-container ${theme}`}>
       <div className="sidebar">
-        {/* Middle: Fixed Drop Zone */}
+        {/* #16: Drop Zone (sidebar is a horizontal row, not left/right columns) */}
         <div 
-          onDragOver={handleDragOver} 
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
           onDrop={handleFileDrop} 
-          className={`drop-zone ${isDragging ? 'dragging' : ''}`}
-          onClick={() => document.getElementById('file-input').click()}
+          className={`drop-zone ${isFileDragging ? 'dragging' : ''}`}
+          onClick={() => fileInputRef.current?.click()}
         >
           <p>Drag & Drop or Click to load .md</p>
         </div>
-        {/* Left: Buttons + Status */}
+        {/* #16: Action Buttons + Status */}
         <div className="button-section">
           <div className="button-group">
             <button onClick={toggleTheme} className="theme-toggle">
@@ -323,36 +520,38 @@ function App() {
             </button>            
             <button onClick={handleDownloadMd} className="download-md">Save Raw MD File</button>
             <button onClick={handleCopy} className="copy-toggle">Copy to Clipboard</button>
-            <button onClick={handleExportPdf} className="export-pdf">Export to PDF</button>
+            {/* #12: Disable button and show feedback while exporting */}
+            <button onClick={handleExportPdf} className="export-pdf" disabled={isExporting}>
+              {isExporting ? 'Exporting…' : 'Export to PDF'}
+            </button>
           </div>
 
-          {/* Message area with fixed height to prevent layout shifting */}
           <div className="copy-status-message">
             {copyStatus && (
-              <span style={{ color: copyStatus.includes('Failed') ? '#ff6b6b' : '#51cf66' }}>
+              <span style={{ color: copyStatus.includes('Failed') || copyStatus.includes('Only') ? '#ff6b6b' : '#51cf66' }}>
                 {copyStatus}
               </span>
             )}
           </div>
         </div>
 
-        
+        {/* #15: Use ref instead of document.getElementById */}
+        <input type="file" ref={fileInputRef} accept=".md" onChange={handleFileSelect} style={{ display: 'none' }} />
 
-        <input type="file" id="file-input" accept=".md" onChange={handleFileSelect} style={{ display: 'none' }} />
-
-        {/* Right: File Info */}
+        {/* #16: File Info section */}
         <div className="file-info">
-          <p style={{margin: 0}}><strong>{fileName}</strong></p>
+          {/* #17: Truncate long filenames */}
+          <p className="file-name" style={{margin: 0}}><strong>{fileName}</strong></p>
           <p className="word-count" style={{margin: 0, opacity: 0.7}}>
             {wordCount} words | {charCount} chars
           </p>
         </div>
       </div>
       <div className="editor-area">
+        {/* #8: onMouseUp removed from here — now on window */}
         <div 
           className="content-wrapper"
           onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
         >
           <div 
             className="markdown-input-container" 
@@ -369,13 +568,14 @@ function App() {
             />
           </div >
           
-          {/* Resizable Divider */}
+          {/* Resizable Divider — #1: uses isResizerDragging */}
           <div 
             className="resizer" 
-            onMouseDown={() => setIsDragging(true)}
+            onMouseDown={() => setIsResizerDragging(true)}
           />
 
-          <div className="preview-area" ref={previewRef}>
+          {/* #6: Bidirectional scroll sync */}
+          <div className="preview-area" ref={previewRef} onScroll={handlePreviewScroll}>
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{markdownContent}</ReactMarkdown>
           </div>
         </div>
