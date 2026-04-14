@@ -64,6 +64,24 @@ function svgToDataUrl(svgString, targetWidth = 400, scale = 2) {
   });
 }
 
+// Helper: fetch a remote image URL and return a base64 data URL
+function imageUrlToDataUrl(url) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      resolve({ dataUrl: canvas.toDataURL('image/png'), width: img.naturalWidth, height: img.naturalHeight });
+    };
+    img.onerror = () => reject(new Error('Failed to load image'));
+    img.src = url;
+  });
+}
+
 // Helper: render a KaTeX expression to a base64 PNG data URL
 async function katexToDataUrl(expression, displayMode = true) {
   const container = document.createElement('div');
@@ -449,6 +467,41 @@ graph TD
           break;
 
         case 'paragraph': {
+          // Check if paragraph contains an image sub-token
+          const imgToken = token.tokens?.find((t) => t.type === 'image');
+          if (imgToken) {
+            try {
+              const { dataUrl: imgData, width: natW } = await imageUrlToDataUrl(imgToken.href);
+              const maxW = 400;
+              const displayW = Math.min(natW, maxW);
+              content.push({
+                image: imgData,
+                width: displayW,
+                alignment: 'center',
+                margin: [0, 4, 0, 4],
+              });
+              if (imgToken.text) {
+                content.push({
+                  text: imgToken.text,
+                  style: 'body',
+                  alignment: 'center',
+                  italics: true,
+                  color: '#666',
+                  fontSize: 9,
+                  margin: [0, 0, 0, 8],
+                });
+              }
+            } catch {
+              content.push({
+                text: `[Image: ${imgToken.text || imgToken.href}]`,
+                style: 'body',
+                italics: true,
+                color: '#666',
+                margin: [0, 0, 0, 8],
+              });
+            }
+            break;
+          }
           // Check if the entire paragraph is a block math expression
           const mathMatch = blockMathRegex.exec(token.raw.trim());
           if (mathMatch) {
@@ -622,16 +675,40 @@ graph TD
           break;
         }
 
-        // #10: Image token – render alt text since pdfMake can't fetch remote images inline
-        case 'image':
-          content.push({
-            text: `[Image: ${token.text || token.href}]`,
-            style: 'body',
-            italics: true,
-            color: '#666',
-            margin: [0, 0, 0, 8],
-          });
+        // #10: Fetch remote images and embed as base64 in the PDF
+        case 'image': {
+          try {
+            const { dataUrl: imgData, width: natW } = await imageUrlToDataUrl(token.href);
+            const maxW = 400;
+            const displayW = Math.min(natW, maxW);
+            content.push({
+              image: imgData,
+              width: displayW,
+              alignment: 'center',
+              margin: [0, 4, 0, 8],
+            });
+            if (token.text) {
+              content.push({
+                text: token.text,
+                style: 'body',
+                alignment: 'center',
+                italics: true,
+                color: '#666',
+                fontSize: 9,
+                margin: [0, 0, 0, 8],
+              });
+            }
+          } catch {
+            content.push({
+              text: `[Image: ${token.text || token.href}]`,
+              style: 'body',
+              italics: true,
+              color: '#666',
+              margin: [0, 0, 0, 8],
+            });
+          }
           break;
+        }
 
         // HTML blocks – strip tags and render as plain text fallback
         case 'html': {
@@ -783,3 +860,6 @@ graph TD
 }
 
 export default App;
+
+
+
