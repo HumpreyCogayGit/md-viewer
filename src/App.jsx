@@ -93,6 +93,30 @@ function App() {
     }
   }, []);
 
+  const handleDownloadMd = useCallback(() => {
+    const blob = new Blob([markdownContent], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, [markdownContent, fileName]);
+
+  const handleFileSelect = useCallback((e) => {
+    const file = e.target.files[0];
+    if (file && file.name.endsWith('.md')) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        setMarkdownContent(event.target.result);
+        setFileName(file.name);
+      };
+      reader.readAsText(file);
+    }
+  }, []);
+
   // Helper: convert marked inline tokens → pdfmake text array (bold, italic, code)
   const parseInline = (text) => {
     // Simple inline regex fallback for bold/italic/code
@@ -174,47 +198,6 @@ function App() {
           content.push({ text: '', margin: [0, 4, 0, 4] });
           break;
 
-        case 'table': {
-          // Build header row with bold styled cells
-          const headerRow = token.header.map((cell) => ({
-            text: cell.text,
-            style: 'tableHeader',
-            fillColor: '#f0f0f0',
-          }));
-
-          // Build body rows
-          const bodyRows = token.rows.map((row) =>
-            row.map((cell) => ({
-              text: parseInline(cell.text),
-              style: 'tableCell',
-            }))
-          );
-
-          // Auto-distribute column widths evenly
-          const colCount = token.header.length;
-          const colWidths = Array(colCount).fill(`${Math.floor(100 / colCount)}%`);
-
-          content.push({
-            table: {
-              headerRows: 1,
-              widths: colWidths,
-              body: [headerRow, ...bodyRows],
-            },
-            layout: {
-              hLineWidth: (i, node) => 
-                (i === 0 || i === 1 || i === node.table.body.length) ? 1.5 : 0.5,
-              vLineWidth: () => 0.5,
-              hLineColor: () => '#cccccc',
-              vLineColor: () => '#cccccc',
-              paddingLeft: () => 8,
-              paddingRight: () => 8,
-              paddingTop: () => 5,
-              paddingBottom: () => 5,
-            },
-            margin: [0, 6, 0, 12],
-          });
-          break;
-        }
         default:
           break;
       }
@@ -233,8 +216,6 @@ function App() {
         body: { fontSize: 11, lineHeight: 1.5, color: '#222' },
         code: { font: 'Roboto', fontSize: 9.5, color: '#333' }, // Changed font to Roboto to match default
         blockquote: { fontSize: 11, italics: true, color: '#555' },
-        tableHeader: { fontSize: 10, bold: true, color: '#111' },
-        tableCell: { fontSize: 10, color: '#333', lineHeight: 1.4 },
       },
       pageMargins: [50, 50, 50, 50],
     };
@@ -269,6 +250,13 @@ function App() {
           Copy
         </button>
         <button 
+          onClick={handleDownloadMd} 
+          className="download-md-toggle"
+          aria-label="Download Markdown File"
+        >
+          Download MD
+        </button>
+        <button 
           onClick={handleExportPdf} 
           className="export-toggle"
           aria-label="Export Preview to PDF"
@@ -279,9 +267,17 @@ function App() {
           onDragOver={handleDragOver} 
           onDrop={handleFileDrop} 
           className="drop-zone"
+          onClick={() => document.getElementById('file-input').click()}
         >
-          <p>Drag & Drop .md file here</p>
+          <p>Drag & Drop or Click to load .md file here</p>
         </div >
+        <input 
+          type="file" 
+          id="file-input" 
+          accept=".md" 
+          onChange={handleFileSelect} 
+          style={{ display: 'none' }}
+        />
         <p>Viewing: {fileName}</p>
       </div >
       <div className="editor-area">
