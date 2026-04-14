@@ -231,6 +231,45 @@ function App() {
         case 'space':
           content.push({ text: '', margin: [0, 4, 0, 4] });
           break;
+        
+        case 'table': {
+          const headerRow = token.header.map((cell) => ({
+            text: cell.text,
+            style: 'tableHeader',
+            fillColor: '#f0f0f0',
+          }));
+
+          const bodyRows = token.rows.map((row) =>
+            row.map((cell) => ({
+              text: parseInline(cell.text),
+              style: 'tableCell',
+            }))
+          );
+
+          const colCount = token.header.length;
+          const colWidths = Array(colCount).fill(`${Math.floor(100 / colCount)}%`);
+
+          content.push({
+            table: {
+              headerRows: 1,
+              widths: colWidths,
+              body: [headerRow, ...bodyRows],
+            },
+            layout: {
+              hLineWidth: (i, node) =>
+                (i === 0 || i === 1 || i === node.table.body.length) ? 1.5 : 0.5,
+              vLineWidth: () => 0.5,
+              hLineColor: () => '#cccccc',
+              vLineColor: () => '#cccccc',
+              paddingLeft: () => 8,
+              paddingRight: () => 8,
+              paddingTop: () => 5,
+              paddingBottom: () => 5,
+            },
+            margin: [0, 6, 0, 12],
+          });
+          break;
+        }
 
         default:
           break;
@@ -250,6 +289,8 @@ function App() {
         body: { fontSize: 11, lineHeight: 1.5, color: '#222' },
         code: { font: 'Roboto', fontSize: 9.5, color: '#333' }, // Changed font to Roboto to match default
         blockquote: { fontSize: 11, italics: true, color: '#555' },
+        tableHeader: { fontSize: 10, bold: true, color: '#111' },
+        tableCell: { fontSize: 10, color: '#333', lineHeight: 1.4 },
       },
       pageMargins: [50, 50, 50, 50],
     };
