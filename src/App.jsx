@@ -17,6 +17,7 @@ function App() {
   const [fileName, setFileName] = useState('document.md');
   const [isDragging, setIsDragging] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false); // New state for sync feature
+  const [copyStatus, setCopyStatus] = useState(''); // State for copy confirmation message
   const [dividerPosition, setDividerPosition] = useState(50); // Percentage for initial split
   const textareaRef = useRef(null);
   const previewRef = useRef(null);
@@ -46,6 +47,26 @@ function App() {
     setMarkdownContent(e.target.value);
   };
 
+  // Feature 2: Handle Tab key press
+  const handleKeyDown = useCallback((e) => {
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      const start = e.target.selectionStart;
+      const end = e.target.selectionEnd;
+      const value = e.target.value;
+      
+      // Insert 4 spaces for indentation
+      const newText = value.substring(0, start) + '    ' + value.substring(end);
+      
+      e.target.value = newText;
+      
+      // Move cursor past the inserted spaces
+      e.target.selectionStart = e.target.selectionEnd = start + 4;
+      
+      setMarkdownContent(newText);
+    }
+  }, []);
+
   const handleFileDrop = useCallback((e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -63,6 +84,7 @@ function App() {
   const handleDragOver = useCallback((e) => {
     e.preventDefault();
     e.stopPropagation();
+    setIsDragging(true); // Feature 3: Set dragging state
   }, []);
 
   const handleMouseMove = useCallback((e) => {
@@ -84,9 +106,10 @@ function App() {
   }, [isDragging]);
 
   const handleMouseUp = useCallback(() => {
-    setIsDragging(false);
+    setIsDragging(false); // Feature 3: Clear dragging state
   }, []);
 
+  // Feature 1: Replaced alert with status message
   const handleCopy = useCallback(async () => {
     try {
       const previewElement = previewRef.current;
@@ -96,9 +119,11 @@ function App() {
       const textToCopy = previewElement.innerText; 
       
       await navigator.clipboard.writeText(textToCopy);
-      alert('Preview content copied to clipboard!');
+      setCopyStatus('Preview content copied to clipboard!');
+      setTimeout(() => setCopyStatus(''), 3000); // Clear status after 3 seconds
     } catch (err) {
       console.error('Failed to copy text: ', err);
+      setCopyStatus('Failed to copy content.');
     }
   }, []);
 
@@ -237,65 +262,51 @@ function App() {
   return (
     <div className={`md-viewer-container ${theme}`}>
       <div className="sidebar">
-        <button 
-          onClick={toggleTheme} 
-          className="theme-toggle"
-          aria-label="Toggle theme"
-        >
-          {theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
-        </button>
-        <button 
-          onClick={() => setIsSyncing(!isSyncing)} 
-          className={`sync-toggle ${isSyncing ? 'active' : ''}`}
-          aria-label={isSyncing ? "Sync Off" : "Sync On"}
-        >
-          {isSyncing ? 'Sync On' : 'Sync Off'}
-        </button>
-        <div className="button-group">
-          <button 
-            onClick={handleCopy} 
-            className="copy-toggle"
-            aria-label="Copy Preview Content"
-          >
-            Copy
-          </button>
-          <button 
-            onClick={handleDownloadMd} 
-            className="download-md-toggle"
-            aria-label="Download Markdown File"
-          >
-            Download MD
-          </button>
-          <button 
-            onClick={handleExportPdf} 
-            className="export-toggle"
-            aria-label="Export Preview to PDF"
-          >
-            Export PDF
-          </button>
-        </div >
+        {/* Middle: Fixed Drop Zone */}
         <div 
           onDragOver={handleDragOver} 
           onDrop={handleFileDrop} 
-          className="drop-zone"
+          className={`drop-zone ${isDragging ? 'dragging' : ''}`}
           onClick={() => document.getElementById('file-input').click()}
         >
-          <p>Drag & Drop or Click to load .md file here</p>
-        </div >
-        <input 
-          type="file" 
-          id="file-input" 
-          accept=".md" 
-          onChange={handleFileSelect} 
-          style={{ display: 'none' }}
-        />
+          <p>Drag & Drop or Click to load .md</p>
+        </div>
+        {/* Left: Buttons + Status */}
+        <div className="button-section">
+          <div className="button-group">
+            <button onClick={toggleTheme} className="theme-toggle">
+              {theme === 'dark' ? 'Light' : 'Dark'}
+            </button>
+            <button onClick={() => setIsSyncing(!isSyncing)} className="sync-toggle">
+              {isSyncing ? 'Sync On' : 'Sync Off'}
+            </button>            
+            <button onClick={handleDownloadMd} className="download-md">Save Raw MD File</button>
+            <button onClick={handleCopy} className="copy-toggle">Copy to Clipboard</button>
+            <button onClick={handleExportPdf} className="export-pdf">Export to PDF</button>
+          </div>
+
+          {/* Message area with fixed height to prevent layout shifting */}
+          <div className="copy-status-message">
+            {copyStatus && (
+              <span style={{ color: copyStatus.includes('Failed') ? '#ff6b6b' : '#51cf66' }}>
+                {copyStatus}
+              </span>
+            )}
+          </div>
+        </div>
+
+        
+
+        <input type="file" id="file-input" accept=".md" onChange={handleFileSelect} style={{ display: 'none' }} />
+
+        {/* Right: File Info */}
         <div className="file-info">
-          <p>Viewing: {fileName}</p>
-          <p className="word-count">
-            Words: {wordCount} | Chars: {charCount}
+          <p style={{margin: 0}}><strong>{fileName}</strong></p>
+          <p className="word-count" style={{margin: 0, opacity: 0.7}}>
+            {wordCount} words | {charCount} chars
           </p>
-        </div >
-      </div >
+        </div>
+      </div>
       <div className="editor-area">
         <div 
           className="content-wrapper"
@@ -312,6 +323,7 @@ function App() {
               value={markdownContent}
               onChange={handleContentChange}
               onScroll={handleScroll}
+              onKeyDown={handleKeyDown}
               placeholder="Enter Markdown here..."
             />
           </div >

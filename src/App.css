@@ -14,41 +14,75 @@
   background-color: #ffffff;
   color: #333333;
 }
-
 .sidebar {
-  width: 100%; /* Sidebar now spans full width as a top bar */
-  padding: 10px 20px; /* Reduced padding for a toolbar feel */
-  background-color: #252526; /* Slightly lighter sidebar */
-  border-bottom: 1px solid #3c3c3c; /* Changed border to bottom */
+  width: 100%;
+  padding: 10px 20px;
+  background-color: #252526;
+  border-bottom: 1px solid #3c3c3c;
   display: flex;
-  flex-direction: row; /* Change to row layout for toolbar items */
+  flex-direction: row;
+  align-items: center; /* Vertically centers all main sections */
   gap: 20px;
-  align-items: center; /* Vertically align items in the toolbar */
+  box-sizing: border-box;
 }
-
 .md-viewer-container.light .sidebar {
   background-color: #f0f0f0;
   border-bottom: 1px solid #dddddd;
 }
 
+.button-group {
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+}
+* This container stacks the buttons and the status message */
+.button-section {
+  display: flex;
+  flex-direction: column;
+  justify-content: center; /* Centers buttons/status within the height */
+  height: 70px; /* Match this to the drop-zone height */
+  min-width: fit-content;
+}
+.copy-status-message {
+  font-size: 0.8rem;
+  margin-top: 4px;
+  height: 1.2em; /* Reserve space so buttons don't jump when it appears */
+}
 .drop-zone {
-  padding: 10px 20px; /* Adjusted padding for toolbar */
+  width: 300px; /* Fixed width */
+  height: 70px; /* Fixed height anchor */
   border: 2px dashed #444;
-  border-radius: 8px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   text-align: center;
   cursor: pointer;
-  transition: background-color 0.2s;
+  background: #2d2d2d;
+  transition: border-color 0.2s;
 }
 
+.drop-zone p {
+  margin: 0;
+  font-size: 0.85rem;
+  padding: 0 10px;
+  color: #cccccc;
+}
 .drop-zone:hover {
-  background-color: #2d2d30;
+  border-color: #007acc;
 }
-
 .sidebar .drop-zone {
   font-size: 0.9em;
   color: #aaa;
 }
 
+.file-info {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  height: 70px;
+  font-size: 0.85rem;
+}
 .editor-area {
   display: flex;
   flex-grow: 1; /* Editor area takes up remaining vertical space */
