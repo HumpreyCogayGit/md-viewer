@@ -21,6 +21,15 @@ function App() {
   const textareaRef = useRef(null);
   const previewRef = useRef(null);
 
+  // Calculate word and character counts whenever markdownContent changes
+  const { wordCount, charCount } = (() => {
+    const text = markdownContent;
+    const charCount = text.length;
+    // Simple word count: split by whitespace and filter out empty strings
+    const wordCount = text.trim() === '' ? 0 : text.trim().split(/\s+/).length;
+    return { wordCount, charCount };
+  })();
+
   const handleScroll = useCallback(() => {
     if (!isSyncing || !textareaRef.current || !previewRef.current) return;
     
@@ -242,27 +251,29 @@ function App() {
         >
           {isSyncing ? 'Sync On' : 'Sync Off'}
         </button>
-        <button 
-          onClick={handleCopy} 
-          className="copy-toggle"
-          aria-label="Copy Preview Content"
-        >
-          Copy
-        </button>
-        <button 
-          onClick={handleDownloadMd} 
-          className="download-md-toggle"
-          aria-label="Download Markdown File"
-        >
-          Download MD
-        </button>
-        <button 
-          onClick={handleExportPdf} 
-          className="export-toggle"
-          aria-label="Export Preview to PDF"
-        >
-          Export PDF
-        </button>
+        <div className="button-group">
+          <button 
+            onClick={handleCopy} 
+            className="copy-toggle"
+            aria-label="Copy Preview Content"
+          >
+            Copy
+          </button>
+          <button 
+            onClick={handleDownloadMd} 
+            className="download-md-toggle"
+            aria-label="Download Markdown File"
+          >
+            Download MD
+          </button>
+          <button 
+            onClick={handleExportPdf} 
+            className="export-toggle"
+            aria-label="Export Preview to PDF"
+          >
+            Export PDF
+          </button>
+        </div >
         <div 
           onDragOver={handleDragOver} 
           onDrop={handleFileDrop} 
@@ -278,7 +289,12 @@ function App() {
           onChange={handleFileSelect} 
           style={{ display: 'none' }}
         />
-        <p>Viewing: {fileName}</p>
+        <div className="file-info">
+          <p>Viewing: {fileName}</p>
+          <p className="word-count">
+            Words: {wordCount} | Chars: {charCount}
+          </p>
+        </div >
       </div >
       <div className="editor-area">
         <div 
