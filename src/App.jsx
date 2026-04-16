@@ -443,6 +443,44 @@ graph TD
     }
   }, []);
 
+  // WYSIWYG toolbar: insert markdown at cursor position
+  const insertMarkdown = useCallback((before, after = '', placeholder = '') => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const selected = markdownContent.substring(start, end);
+    const insert = selected || placeholder;
+    const newText = markdownContent.substring(0, start) + before + insert + after + markdownContent.substring(end);
+    setMarkdownContent(newText);
+    // Place cursor after inserted content or select the placeholder
+    const cursorPos = selected
+      ? start + before.length + insert.length + after.length
+      : start + before.length;
+    const cursorEnd = selected
+      ? cursorPos
+      : cursorPos + insert.length;
+    requestAnimationFrame(() => {
+      textarea.focus();
+      textarea.selectionStart = cursorPos === cursorEnd ? cursorPos : cursorPos;
+      textarea.selectionEnd = cursorEnd;
+    });
+  }, [markdownContent]);
+
+  const insertBlock = useCallback((block) => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    const start = textarea.selectionStart;
+    const beforeText = markdownContent.substring(0, start);
+    const prefix = beforeText.endsWith('\n') || beforeText === '' ? '' : '\n';
+    const newText = beforeText + prefix + block + '\n' + markdownContent.substring(start);
+    setMarkdownContent(newText);
+    requestAnimationFrame(() => {
+      textarea.focus();
+      textarea.selectionStart = textarea.selectionEnd = start + prefix.length + block.length + 1;
+    });
+  }, [markdownContent]);
+
   // parseInline – handles bold, italic, bold+italic (both * and _ syntax),
   // strikethrough, inline code, links, autolinks, and plain text
   const parseInline = (text) => {
@@ -829,6 +867,77 @@ graph TD
           <p className="word-count" style={{margin: 0, opacity: 0.7}}>
             {wordCount} words | {charCount} chars
           </p>
+        </div>
+      </div>
+      {/* WYSIWYG Formatting Toolbar */}
+      <div className="formatting-toolbar">
+        <div className="toolbar-group">
+          <button title="Bold (Ctrl+B)" onClick={() => insertMarkdown('**', '**', 'bold')}>
+            <strong>B</strong>
+          </button>
+          <button title="Italic (Ctrl+I)" onClick={() => insertMarkdown('*', '*', 'italic')}>
+            <em>I</em>
+          </button>
+          <button title="Strikethrough" onClick={() => insertMarkdown('~~', '~~', 'strikethrough')}>
+            <s>S</s>
+          </button>
+          <button title="Inline Code" onClick={() => insertMarkdown('`', '`', 'code')}>
+            <code>&lt;/&gt;</code>
+          </button>
+        </div>
+        <span className="toolbar-divider" />
+        <div className="toolbar-group">
+          <button title="Heading 1" onClick={() => insertMarkdown('# ', '', 'Heading 1')}>H1</button>
+          <button title="Heading 2" onClick={() => insertMarkdown('## ', '', 'Heading 2')}>H2</button>
+          <button title="Heading 3" onClick={() => insertMarkdown('### ', '', 'Heading 3')}>H3</button>
+        </div>
+        <span className="toolbar-divider" />
+        <div className="toolbar-group">
+          <button title="Unordered List" onClick={() => insertBlock('- List item')}>
+            &#8226; List
+          </button>
+          <button title="Ordered List" onClick={() => insertBlock('1. List item')}>
+            1. List
+          </button>
+          <button title="Task List" onClick={() => insertBlock('- [ ] Task item')}>
+            &#9744; Task
+          </button>
+        </div>
+        <span className="toolbar-divider" />
+        <div className="toolbar-group">
+          <button title="Blockquote" onClick={() => insertMarkdown('> ', '', 'quote')}>
+            &#10077; Quote
+          </button>
+          <button title="Link" onClick={() => insertMarkdown('[', '](url)', 'link text')}>
+            &#128279; Link
+          </button>
+          <button title="Image" onClick={() => insertMarkdown('![', '](url)', 'alt text')}>
+            &#128247; Image
+          </button>
+        </div>
+        <span className="toolbar-divider" />
+        <div className="toolbar-group">
+          <button title="Code Block" onClick={() => insertBlock('```\ncode here\n```')}>
+            &#123;&#125; Code
+          </button>
+          <button title="Table" onClick={() => insertBlock('| Header 1 | Header 2 |\n|----------|----------|\n| Cell 1   | Cell 2   |')}>
+            &#9638; Table
+          </button>
+          <button title="Horizontal Rule" onClick={() => insertBlock('---')}>
+            &#8213; Rule
+          </button>
+        </div>
+        <span className="toolbar-divider" />
+        <div className="toolbar-group">
+          <button title="Inline Math" onClick={() => insertMarkdown('$', '$', 'E = mc^2')}>
+            &#120536; Math
+          </button>
+          <button title="Block Math" onClick={() => insertBlock('$$\nx^2 + y^2 = z^2\n$$')}>
+            &#8721; Block Math
+          </button>
+          <button title="Mermaid Diagram" onClick={() => insertBlock('```mermaid\ngraph TD\n    A[Start] --> B[End]\n```')}>
+            &#9670; Mermaid
+          </button>
         </div>
       </div>
       <div className="editor-area">

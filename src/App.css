@@ -103,6 +103,76 @@ button.export-pdf:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
+
+/* WYSIWYG Formatting Toolbar */
+.formatting-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 12px;
+  background-color: #2d2d2d;
+  border-bottom: 1px solid #3c3c3c;
+  flex-shrink: 0;
+  overflow-x: auto;
+}
+
+.md-viewer-container.light .formatting-toolbar {
+  background-color: #e8e8e8;
+  border-bottom: 1px solid #d0d0d0;
+}
+
+.toolbar-group {
+  display: flex;
+  gap: 2px;
+}
+
+.toolbar-divider {
+  width: 1px;
+  height: 22px;
+  background-color: #555;
+  margin: 0 6px;
+  flex-shrink: 0;
+}
+
+.md-viewer-container.light .toolbar-divider {
+  background-color: #c0c0c0;
+}
+
+.formatting-toolbar button {
+  background: transparent;
+  border: 1px solid transparent;
+  color: #cccccc;
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.78rem;
+  line-height: 1.3;
+  white-space: nowrap;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+
+.formatting-toolbar button:hover {
+  background-color: #3c3c3c;
+  border-color: #555;
+}
+
+.formatting-toolbar button:active {
+  background-color: #505050;
+}
+
+.md-viewer-container.light .formatting-toolbar button {
+  color: #333333;
+}
+
+.md-viewer-container.light .formatting-toolbar button:hover {
+  background-color: #d4d4d4;
+  border-color: #bbb;
+}
+
+.md-viewer-container.light .formatting-toolbar button:active {
+  background-color: #c0c0c0;
+}
+
 .editor-area {
   display: flex;
   flex-grow: 1; /* Editor area takes up remaining vertical space */
