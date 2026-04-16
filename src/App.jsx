@@ -244,6 +244,48 @@ graph TD
   const cursorPosRef = useRef(null);
   // Flag to prevent scroll feedback loop
   const isScrollSyncingRef = useRef(false);
+  // Track which pane was last focused for toolbar actions
+  const lastFocusedPaneRef = useRef('editor'); // 'editor' | 'preview'
+
+  // Undo/redo history stack
+  const historyRef = useRef([markdownContent]);
+  const historyIndexRef = useRef(0);
+  const isUndoRedoRef = useRef(false); // flag to skip pushing during undo/redo
+
+  // Wrapper to update content and push to history
+  const updateContent = useCallback((newContent) => {
+    if (!isUndoRedoRef.current) {
+      // Truncate any redo history beyond current index
+      const idx = historyIndexRef.current;
+      historyRef.current = historyRef.current.slice(0, idx + 1);
+      historyRef.current.push(newContent);
+      // Cap history at 200 entries
+      if (historyRef.current.length > 200) {
+        historyRef.current.shift();
+      } else {
+        historyIndexRef.current = historyRef.current.length - 1;
+      }
+    }
+    setMarkdownContent(newContent);
+  }, []);
+
+  const undo = useCallback(() => {
+    if (historyIndexRef.current > 0) {
+      historyIndexRef.current--;
+      isUndoRedoRef.current = true;
+      setMarkdownContent(historyRef.current[historyIndexRef.current]);
+      isUndoRedoRef.current = false;
+    }
+  }, []);
+
+  const redo = useCallback(() => {
+    if (historyIndexRef.current < historyRef.current.length - 1) {
+      historyIndexRef.current++;
+      isUndoRedoRef.current = true;
+      setMarkdownContent(historyRef.current[historyIndexRef.current]);
+      isUndoRedoRef.current = false;
+    }
+  }, []);
 
   // #5: Restore cursor position after state update re-renders the textarea
   useEffect(() => {
@@ -326,23 +368,38 @@ graph TD
   }, [isSyncing]);
 
   const handleContentChange = (e) => {
-    setMarkdownContent(e.target.value);
+    updateContent(e.target.value);
   };
 
-  // #5: Handle Tab without direct DOM mutation
+  // #5: Handle Tab, Undo, Redo keyboard shortcuts
   const handleKeyDown = useCallback((e) => {
+    const isMod = e.metaKey || e.ctrlKey;
+
+    // Undo: Ctrl+Z / Cmd+Z
+    if (isMod && e.key === 'z' && !e.shiftKey) {
+      e.preventDefault();
+      undo();
+      return;
+    }
+
+    // Redo: Ctrl+Shift+Z / Cmd+Shift+Z or Ctrl+Y / Cmd+Y
+    if ((isMod && e.key === 'z' && e.shiftKey) || (isMod && e.key === 'y')) {
+      e.preventDefault();
+      redo();
+      return;
+    }
+
     if (e.key === 'Tab') {
       e.preventDefault();
       const start = e.target.selectionStart;
       const end = e.target.selectionEnd;
 
-      setMarkdownContent((prev) => {
-        const newText = prev.substring(0, start) + '    ' + prev.substring(end);
-        cursorPosRef.current = start + 4;
-        return newText;
-      });
+      const prev = markdownContent;
+      const newText = prev.substring(0, start) + '    ' + prev.substring(end);
+      cursorPosRef.current = start + 4;
+      updateContent(newText);
     }
-  }, []);
+  }, [undo, redo, markdownContent, updateContent]);
 
   // #3: Clear isFileDragging on drop; #13: Error for non-.md files
   const handleFileDrop = useCallback((e) => {
@@ -353,7 +410,10 @@ graph TD
     if (file && file.name.endsWith('.md')) {
       const reader = new FileReader();
       reader.onload = (event) => {
-        setMarkdownContent(event.target.result);
+        const content = event.target.result;
+        historyRef.current = [content];
+        historyIndexRef.current = 0;
+        setMarkdownContent(content);
         setFileName(file.name);
       };
       reader.readAsText(file);
@@ -433,7 +493,10 @@ graph TD
     if (file && file.name.endsWith('.md')) {
       const reader = new FileReader();
       reader.onload = (event) => {
-        setMarkdownContent(event.target.result);
+        const content = event.target.result;
+        historyRef.current = [content];
+        historyIndexRef.current = 0;
+        setMarkdownContent(content);
         setFileName(file.name);
       };
       reader.readAsText(file);
@@ -443,17 +506,169 @@ graph TD
     }
   }, []);
 
-  // WYSIWYG toolbar: insert markdown at cursor position
+  // Helper: get plain text selection from the preview pane
+  const getPreviewSelection = useCallback(() => {
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed || !previewRef.current) return null;
+    // Only use if the selection is inside the preview area
+    if (!previewRef.current.contains(sel.anchorNode)) return null;
+    return sel.toString();
+  }, []);
+
+  // Helper: find text in markdown source and return its position
+  // Strips common markdown syntax to match plain rendered text back to source
+  const findInSource = useCallback((plainText) => {
+    if (!plainText) return null;
+    const searchText = plainText.trim();
+    if (!searchText) return null;
+
+    // Direct search first (handles multi-line verbatim matches)
+    const directIdx = markdownContent.indexOf(searchText);
+    if (directIdx !== -1) {
+      return { start: directIdx, end: directIdx + searchText.length };
+    }
+
+    // For multi-line selections, find the range from first line match to last line match
+    const searchLines = searchText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    if (searchLines.length === 0) return null;
+
+    // Strip function to normalize a source line for comparison
+    const stripLine = (line) => line
+      .replace(/^#{1,6}\s+/, '')
+      .replace(/^>\s?/, '')
+      .replace(/\*\*\*(.+?)\*\*\*/g, '$1')
+      .replace(/\*\*(.+?)\*\*/g, '$1')
+      .replace(/\*(.+?)\*/g, '$1')
+      .replace(/~~(.+?)~~/g, '$1')
+      .replace(/`(.+?)`/g, '$1')
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
+
+    const sourceLines = markdownContent.split('\n');
+    let firstMatchOffset = null;
+    let lastMatchEnd = null;
+    let sourceOffset = 0;
+    let searchIdx = 0;
+
+    for (let i = 0; i < sourceLines.length && searchIdx < searchLines.length; i++) {
+      const stripped = stripLine(sourceLines[i]);
+      if (stripped.includes(searchLines[searchIdx])) {
+        if (firstMatchOffset === null) {
+          firstMatchOffset = sourceOffset;
+        }
+        lastMatchEnd = sourceOffset + sourceLines[i].length;
+        searchIdx++;
+      } else if (firstMatchOffset !== null && sourceLines[i].trim() === '') {
+        // Allow blank lines in between
+        lastMatchEnd = sourceOffset + sourceLines[i].length;
+      }
+      sourceOffset += sourceLines[i].length + 1;
+    }
+
+    if (firstMatchOffset !== null && searchIdx === searchLines.length) {
+      return { start: firstMatchOffset, end: lastMatchEnd };
+    }
+
+    // Single-line fuzzy fallback (original logic)
+    sourceOffset = 0;
+    for (const line of sourceLines) {
+      const stripped = stripLine(line);
+      const idx = stripped.indexOf(searchText);
+      if (idx !== -1) {
+        let strippedPos = 0;
+        let origPos = 0;
+        while (strippedPos < idx && origPos < line.length) {
+          if (line.substring(origPos).match(/^(\*\*\*|\*\*|\*|~~|`|#{1,6}\s|>\s?)/)) {
+            const m = line.substring(origPos).match(/^(\*\*\*|\*\*|\*|~~|`|#{1,6}\s|>\s?)/);
+            origPos += m[1].length;
+          } else if (line[origPos] === '[') {
+            origPos++;
+          } else {
+            origPos++;
+            strippedPos++;
+          }
+        }
+        const matchStart = sourceOffset + origPos;
+        let remaining = searchText.length;
+        let endPos = origPos;
+        while (remaining > 0 && endPos < line.length) {
+          if (line.substring(endPos).match(/^(\*\*\*|\*\*|\*|~~|`)/)) {
+            const m = line.substring(endPos).match(/^(\*\*\*|\*\*|\*|~~|`)/);
+            endPos += m[1].length;
+          } else if (line.substring(endPos).match(/^\]\([^)]+\)/)) {
+            const m = line.substring(endPos).match(/^\]\([^)]+\)/);
+            endPos += m[0].length;
+          } else {
+            endPos++;
+            remaining--;
+          }
+        }
+        return { start: matchStart, end: sourceOffset + endPos };
+      }
+      sourceOffset += line.length + 1;
+    }
+
+    return null;
+  }, [markdownContent]);
+
+  // Helper: apply inline/prefix formatting to each line of a multi-line string
+  const formatLines = useCallback((text, before, after) => {
+    const lines = text.split('\n');
+    return lines.map(line => {
+      if (line.trim() === '') return line; // preserve blank lines
+      return before + line + after;
+    }).join('\n');
+  }, []);
+
+  // WYSIWYG toolbar: insert markdown at cursor position or around preview selection
   const insertMarkdown = useCallback((before, after = '', placeholder = '') => {
     const textarea = textareaRef.current;
     if (!textarea) return;
+
+    // Check if user selected text in the preview pane
+    const previewSelection = lastFocusedPaneRef.current === 'preview' ? getPreviewSelection() : null;
+
+    if (previewSelection) {
+      const pos = findInSource(previewSelection);
+      if (pos) {
+        const selectedSource = markdownContent.substring(pos.start, pos.end);
+        // Multi-line: format each line individually
+        const formatted = selectedSource.includes('\n')
+          ? formatLines(selectedSource, before, after)
+          : before + selectedSource + after;
+        const newText = markdownContent.substring(0, pos.start) + formatted + markdownContent.substring(pos.end);
+        updateContent(newText);
+        window.getSelection()?.removeAllRanges();
+        requestAnimationFrame(() => {
+          textarea.focus();
+          textarea.selectionStart = pos.start;
+          textarea.selectionEnd = pos.start + formatted.length;
+        });
+        return;
+      }
+    }
+
+    // Default: operate on editor textarea selection
     const start = textarea.selectionStart;
     const end = textarea.selectionEnd;
     const selected = markdownContent.substring(start, end);
+
+    // Multi-line selection: apply formatting to each line
+    if (selected && selected.includes('\n')) {
+      const formatted = formatLines(selected, before, after);
+      const newText = markdownContent.substring(0, start) + formatted + markdownContent.substring(end);
+      updateContent(newText);
+      requestAnimationFrame(() => {
+        textarea.focus();
+        textarea.selectionStart = start;
+        textarea.selectionEnd = start + formatted.length;
+      });
+      return;
+    }
+
+    // Single-line or no selection
     const insert = selected || placeholder;
     const newText = markdownContent.substring(0, start) + before + insert + after + markdownContent.substring(end);
-    setMarkdownContent(newText);
-    // Place cursor after inserted content or select the placeholder
+    updateContent(newText);
     const cursorPos = selected
       ? start + before.length + insert.length + after.length
       : start + before.length;
@@ -465,21 +680,26 @@ graph TD
       textarea.selectionStart = cursorPos === cursorEnd ? cursorPos : cursorPos;
       textarea.selectionEnd = cursorEnd;
     });
-  }, [markdownContent]);
+  }, [markdownContent, getPreviewSelection, findInSource, formatLines, updateContent]);
 
   const insertBlock = useCallback((block) => {
     const textarea = textareaRef.current;
     if (!textarea) return;
-    const start = textarea.selectionStart;
+
+    // If preview is focused, insert at the end of the source
+    const start = lastFocusedPaneRef.current === 'preview'
+      ? markdownContent.length
+      : textarea.selectionStart;
+
     const beforeText = markdownContent.substring(0, start);
     const prefix = beforeText.endsWith('\n') || beforeText === '' ? '' : '\n';
     const newText = beforeText + prefix + block + '\n' + markdownContent.substring(start);
-    setMarkdownContent(newText);
+    updateContent(newText);
     requestAnimationFrame(() => {
       textarea.focus();
       textarea.selectionStart = textarea.selectionEnd = start + prefix.length + block.length + 1;
     });
-  }, [markdownContent]);
+  }, [markdownContent, updateContent]);
 
   // parseInline – handles bold, italic, bold+italic (both * and _ syntax),
   // strikethrough, inline code, links, autolinks, and plain text
@@ -870,7 +1090,7 @@ graph TD
         </div>
       </div>
       {/* WYSIWYG Formatting Toolbar */}
-      <div className="formatting-toolbar">
+      <div className="formatting-toolbar" onMouseDown={(e) => e.preventDefault()}>
         <div className="toolbar-group">
           <button title="Bold (Ctrl+B)" onClick={() => insertMarkdown('**', '**', 'bold')}>
             <strong>B</strong>
@@ -957,6 +1177,7 @@ graph TD
               onChange={handleContentChange}
               onScroll={handleScroll}
               onKeyDown={handleKeyDown}
+              onFocus={() => { lastFocusedPaneRef.current = 'editor'; }}
               placeholder="Enter Markdown here..."
             />
           </div >
@@ -968,7 +1189,7 @@ graph TD
           />
 
           {/* #6: Bidirectional scroll sync */}
-          <div className="preview-area" ref={previewRef} onScroll={handlePreviewScroll}>
+          <div className="preview-area" ref={previewRef} onScroll={handlePreviewScroll} onMouseDown={() => { lastFocusedPaneRef.current = 'preview'; }}>
             <ReactMarkdown
               remarkPlugins={[remarkGfm, remarkMath]}
               rehypePlugins={[rehypeKatex]}
