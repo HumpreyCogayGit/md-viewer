@@ -47,7 +47,7 @@ function svgToDataUrl(svgString, targetWidth = 400, scale = 2) {
     if (!vb) svgEl.setAttribute('viewBox', `0 0 ${nativeW} ${nativeH}`);
 
     const serialized = new XMLSerializer().serializeToString(svgEl);
-    const svgData = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(serialized)));
+    const svgData = 'data:image/svg+xml;base64,' + btoa(encodeURIComponent(serialized).replace(/%([0-9A-F]{2})/g, (_, p1) => String.fromCharCode(parseInt(p1, 16))));
     const img = new Image();
     img.onload = () => {
       const canvas = document.createElement('canvas');
@@ -101,7 +101,6 @@ async function katexToDataUrl(expression, displayMode = true) {
 }
 
 // Mermaid diagram component for ReactMarkdown code blocks
-let mermaidCounter = 0;
 function MermaidDiagram({ children }) {
   const containerRef = useRef(null);
   const [svg, setSvg] = useState('');
@@ -109,7 +108,7 @@ function MermaidDiagram({ children }) {
 
   useEffect(() => {
     const code = String(children).trim();
-    const id = `mermaid-${Date.now()}-${mermaidCounter++}`;
+    const id = `mermaid-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
     let cancelled = false;
     mermaid.render(id, code).then(({ svg }) => {
       if (!cancelled) setSvg(svg);
@@ -264,8 +263,31 @@ graph TD
   const { wordCount, charCount } = (() => {
     const text = markdownContent;
     const charCount = text.length;
-    const plainText = text.replace(/[#*_`>~\[\]!|]/g, '');
-    const wordCount = plainText.trim() === '' ? 0 : plainText.trim().split(/\s+/).length;
+    let plain = text;
+    // Remove fenced code blocks (``` ... ```)
+    plain = plain.replace(/```[\s\S]*?```/g, '');
+    // Remove inline code
+    plain = plain.replace(/`[^`]+`/g, '');
+    // Remove images ![alt](url)
+    plain = plain.replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1');
+    // Remove links [text](url) — keep the text
+    plain = plain.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1');
+    // Remove autolinks <url>
+    plain = plain.replace(/<https?:\/\/[^>]+>/g, '');
+    // Remove HTML tags
+    plain = plain.replace(/<[^>]*>/g, '');
+    // Remove heading markers, bold/italic, strikethrough, blockquote, hr, etc.
+    plain = plain.replace(/^#{1,6}\s+/gm, '');
+    plain = plain.replace(/^>\s?/gm, '');
+    plain = plain.replace(/^[-*_]{3,}\s*$/gm, '');
+    plain = plain.replace(/\*{1,3}|_{1,3}|~~|`/g, '');
+    // Remove table pipes and alignment markers
+    plain = plain.replace(/\|/g, ' ');
+    plain = plain.replace(/^[\s:|-]+$/gm, '');
+    // Remove math delimiters
+    plain = plain.replace(/\$\$/g, '');
+    plain = plain.replace(/\$/g, '');
+    const wordCount = plain.trim() === '' ? 0 : plain.trim().split(/\s+/).length;
     return { wordCount, charCount };
   })();
 
@@ -283,7 +305,7 @@ graph TD
       preview.scrollTop = scrollRatio * (preview.scrollHeight - preview.clientHeight);
     }
 
-    isScrollSyncingRef.current = false;
+    requestAnimationFrame(() => { isScrollSyncingRef.current = false; });
   }, [isSyncing]);
 
   // #6: Reverse sync (preview → textarea)
@@ -300,7 +322,7 @@ graph TD
       textarea.scrollTop = scrollRatio * (textarea.scrollHeight - textarea.clientHeight);
     }
 
-    isScrollSyncingRef.current = false;
+    requestAnimationFrame(() => { isScrollSyncingRef.current = false; });
   }, [isSyncing]);
 
   const handleContentChange = (e) => {
@@ -426,7 +448,8 @@ graph TD
   const parseInline = (text) => {
     const parts = [];
     // Order: inline math ($$...$$, $...$), bold+italic, bold, italic, strikethrough, code, link, autolink, plain
-    const regex = /(\$\$([^$]+?)\$\$|\$([^$]+?)\$|\*\*\*(.+?)\*\*\*|___(.+?)___|\*\*(.+?)\*\*|__(.+?)__|\*(.+?)\*|_(.+?)_|~~(.+?)~~|`(.+?)`|\[([^\]]+)\]\(([^)]+)\)|<(https?:\/\/[^>]+)>|([^*_`~\[$<]+))/gs;
+    // Uses [^*], [^_] etc. to prevent greedy matches across adjacent inline elements
+    const regex = /(\$\$([^$]+?)\$\$|\$([^$]+?)\$|\*\*\*([^*]+?)\*\*\*|___([^_]+?)___|\*\*([^*]+?)\*\*|__([^_]+?)__|\*([^*]+?)\*|_([^_]+?)_|~~([^~]+?)~~|`([^`]+?)`|\[([^\]]+)\]\(([^)]+)\)|<(https?:\/\/[^>]+)>|([^*_`~\[$<]+))/g;
     let match;
     while ((match = regex.exec(text)) !== null) {
       if (match[2])       parts.push({ text: match[2].trim(), fontSize: 10, italics: true, color: '#6a0dad', background: '#f3e8ff' });
@@ -561,9 +584,11 @@ graph TD
           if (token.lang === 'mermaid') {
             try {
               const mermaidId = `pdf-mermaid-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-              // Temporarily use light theme for PDF rendering
+              // Use light theme for PDF without mutating global mermaid config
+              const prevTheme = theme === 'dark' ? 'dark' : 'default';
               mermaid.initialize({ startOnLoad: false, theme: 'default' });
               const { svg } = await mermaid.render(mermaidId, token.text);
+              mermaid.initialize({ startOnLoad: false, theme: prevTheme });
               const dataUrl = await svgToDataUrl(svg, 220, 2);
               content.push({
                 image: dataUrl,
@@ -751,11 +776,9 @@ graph TD
       .createPdf(docDefinition)
       .download(fileName.replace(/\.md$/, '') + '.pdf');
     } finally {
-      // Restore mermaid theme to match app
-      mermaid.initialize({ startOnLoad: false, theme: theme === 'dark' ? 'dark' : 'default' });
       setIsExporting(false);
     }
-  }, [markdownContent, fileName]);
+  }, [markdownContent, fileName, theme]);
 
   return (
     <div className={`md-viewer-container ${theme}`}>
