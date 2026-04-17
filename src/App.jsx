@@ -460,6 +460,23 @@ graph TD
     return () => window.removeEventListener('mouseup', handleMouseUp);
   }, []);
 
+  // Global undo/redo: fires when textarea is not focused (e.g. preview focus mode)
+  useEffect(() => {
+    const handleGlobalKeyDown = (e) => {
+      if (document.activeElement === textareaRef.current) return; // textarea handles it
+      const isMod = e.metaKey || e.ctrlKey;
+      if (isMod && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        undo();
+      } else if ((isMod && e.key === 'z' && e.shiftKey) || (isMod && e.key === 'y')) {
+        e.preventDefault();
+        redo();
+      }
+    };
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [undo, redo]);
+
   // Feature 1: Replaced alert with status message
   const handleCopy = useCallback(async () => {
     try {
