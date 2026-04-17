@@ -234,6 +234,9 @@ graph TD
   const [isSyncing, setIsSyncing] = useState(false);
   const [copyStatus, setCopyStatus] = useState('');
   const [dividerPosition, setDividerPosition] = useState(50);
+  // Focus mode: 'none' | 'editor' | 'preview'
+  const [focusMode, setFocusMode] = useState('none');
+  const [focusTarget, setFocusTarget] = useState('editor'); // which pane to maximize
   // #12: Add isExporting state for PDF export button
   const [isExporting, setIsExporting] = useState(false);
   const textareaRef = useRef(null);
@@ -1066,6 +1069,12 @@ graph TD
             <button onClick={handleExportPdf} className="export-pdf" disabled={isExporting}>
               {isExporting ? 'Exporting…' : 'Export to PDF'}
             </button>
+            {/* Focus mode: maximize editor or preview */}
+            <button
+              onClick={() => setFocusMode(focusMode === 'none' ? focusTarget : 'none')}
+            >
+              {focusMode !== 'none' ? 'Exit Focus' : 'Focus'}
+            </button>
           </div>
 
           <div className="copy-status-message">
@@ -1161,6 +1170,31 @@ graph TD
         </div>
       </div>
       <div className="editor-area">
+        {/* Floating focus switch – upper right when in focus mode */}
+        {focusMode !== 'none' && (
+          <div className="focus-overlay">
+            <div className="focus-switch">
+              <button
+                className={`focus-switch-option${focusTarget === 'editor' ? ' selected' : ''}`}
+                onClick={() => { setFocusTarget('editor'); setFocusMode('editor'); }}
+              >
+                Editor
+              </button>
+              <button
+                className={`focus-switch-option${focusTarget === 'preview' ? ' selected' : ''}`}
+                onClick={() => { setFocusTarget('preview'); setFocusMode('preview'); }}
+              >
+                Preview
+              </button>
+            </div>
+            <button
+              className="focus-overlay-exit"
+              onClick={() => setFocusMode('none')}
+            >
+              Exit Focus
+            </button>
+          </div>
+        )}
         {/* #8: onMouseUp removed from here — now on window */}
         <div 
           className="content-wrapper"
@@ -1168,7 +1202,11 @@ graph TD
         >
           <div 
             className="markdown-input-container" 
-            style={{ flexBasis: `${dividerPosition}%` }}
+            style={{
+              flexBasis: focusMode === 'none' ? `${dividerPosition}%` : undefined,
+              display: focusMode === 'preview' ? 'none' : undefined,
+              flexGrow: focusMode === 'editor' ? 1 : undefined,
+            }}
           >
             <textarea
               ref={textareaRef}
@@ -1183,13 +1221,23 @@ graph TD
           </div >
           
           {/* Resizable Divider — #1: uses isResizerDragging */}
-          <div 
-            className="resizer" 
-            onMouseDown={() => setIsResizerDragging(true)}
-          />
+          {focusMode === 'none' && (
+            <div 
+              className="resizer" 
+              onMouseDown={() => setIsResizerDragging(true)}
+            />
+          )}
 
           {/* #6: Bidirectional scroll sync */}
-          <div className="preview-area" ref={previewRef} onScroll={handlePreviewScroll} onMouseDown={() => { lastFocusedPaneRef.current = 'preview'; }}>
+          <div
+            className="preview-area"
+            ref={previewRef}
+            onScroll={handlePreviewScroll}
+            onMouseDown={() => { lastFocusedPaneRef.current = 'preview'; }}
+            style={{
+              display: focusMode === 'editor' ? 'none' : undefined,
+            }}
+          >
             <ReactMarkdown
               remarkPlugins={[remarkGfm, remarkMath]}
               rehypePlugins={[rehypeKatex]}
