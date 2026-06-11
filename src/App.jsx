@@ -122,6 +122,259 @@ function MermaidDiagram({ children }) {
   return <div className="mermaid-diagram" ref={containerRef} dangerouslySetInnerHTML={{ __html: svg }} />;
 }
 
+const SQL_KEYWORDS = new Set([
+  'ADD', 'ALL', 'ALTER', 'AND', 'AS', 'ASC', 'BEGIN', 'BETWEEN', 'BY', 'CASE', 'CHECK', 'COLUMN',
+  'COMMIT', 'CONSTRAINT', 'CREATE', 'CROSS', 'DATABASE', 'DEFAULT', 'DELETE', 'DESC', 'DISTINCT',
+  'DROP', 'ELSE', 'END', 'EXISTS', 'FALSE', 'FOREIGN', 'FROM', 'FULL', 'GROUP', 'HAVING', 'IN',
+  'INNER', 'INSERT', 'INTO', 'IS', 'JOIN', 'KEY', 'LEFT', 'LIKE', 'LIMIT', 'NOT', 'NULL', 'OFFSET',
+  'ON', 'OR', 'ORDER', 'OUTER', 'PRIMARY', 'REFERENCES', 'RETURNING', 'RIGHT', 'ROLLBACK', 'SELECT',
+  'SET', 'TABLE', 'THEN', 'TRUE', 'UNION', 'UNIQUE', 'UPDATE', 'VALUES', 'VIEW', 'WHEN', 'WHERE',
+  'WITH'
+]);
+
+const SQL_FUNCTIONS = new Set([
+  'AVG', 'COALESCE', 'COUNT', 'DATE', 'IFNULL', 'LOWER', 'MAX', 'MIN', 'NOW', 'ROUND', 'SUM', 'UPPER'
+]);
+
+const SQL_CLAUSE_KEYWORDS = new Set([
+  'SELECT', 'FROM', 'WHERE', 'GROUP BY', 'HAVING', 'ORDER BY', 'LIMIT', 'OFFSET', 'UNION', 'UNION ALL',
+  'INSERT INTO', 'UPDATE', 'DELETE FROM', 'CREATE', 'ALTER', 'DROP', 'VALUES', 'SET', 'RETURNING',
+  'JOIN', 'LEFT JOIN', 'LEFT OUTER JOIN', 'RIGHT JOIN', 'RIGHT OUTER JOIN', 'INNER JOIN', 'FULL JOIN',
+  'FULL OUTER JOIN', 'CROSS JOIN', 'ON', 'WITH'
+]);
+
+const SQL_LINE_BREAK_KEYWORDS = new Set(['AND', 'OR', 'WHEN', 'ELSE']);
+
+// Use spaces instead of literal tab characters for SQL formatting.
+// Safari can render textarea/code tabs inconsistently, especially while text is selected.
+// Four spaces gives deterministic visual indentation across browsers and exports.
+const SQL_INDENT = '    ';
+
+function tokenizeSql(code) {
+  const regex = /(--[^\n]*|\/\*[\s\S]*?\*\/|'(?:''|[^'])*'|"(?:""|[^"])*"|`[^`]*`|\b\d+(?:\.\d+)?\b|[A-Za-z_][\w$]*|[(),.;]|<>|!=|<=|>=|==|[+\-*/%=<>]|\s+|.)/g;
+  return Array.from(code.matchAll(regex), ([, value]) => {
+    if (/^\s+$/.test(value)) return { type: 'space', value };
+    if (/^(--|\/\*)/.test(value)) return { type: 'comment', value };
+    if (/^['"`]/.test(value)) return { type: 'string', value };
+    if (/^\d/.test(value)) return { type: 'number', value };
+    if (/^[A-Za-z_]/.test(value)) {
+      const upper = value.toUpperCase();
+      if (SQL_KEYWORDS.has(upper)) return { type: 'keyword', value: upper };
+      if (SQL_FUNCTIONS.has(upper)) return { type: 'function', value: upper };
+      return { type: 'identifier', value };
+    }
+    if (/^[(),.;]$/.test(value)) return { type: 'punctuation', value };
+    if (/^(<>|!=|<=|>=|==|[+\-*/%=<>])$/.test(value)) return { type: 'operator', value };
+    return { type: 'plain', value };
+  });
+}
+
+function formatSql(sql) {
+  const tokens = tokenizeSql(sql.trim()).filter((token) => token.type !== 'space');
+  if (tokens.length === 0) return '';
+
+  const lines = [];
+  let indentLevel = 0;
+  let contentIndent = 0;
+  let skipCount = 0;
+  const parenStack = [];
+
+  const tokenValue = (token) => (
+    token.type === 'keyword' || token.type === 'function'
+      ? token.value.toUpperCase()
+      : token.value
+  );
+
+  const getClause = (index) => {
+    const first = tokenValue(tokens[index]);
+    const second = tokens[index + 1] ? tokenValue(tokens[index + 1]) : '';
+    const third = tokens[index + 2] ? tokenValue(tokens[index + 2]) : '';
+
+    const threeWord = `${first} ${second} ${third}`;
+    const twoWord = `${first} ${second}`;
+
+    if (SQL_CLAUSE_KEYWORDS.has(threeWord)) return { value: threeWord, consumed: 3 };
+    if (SQL_CLAUSE_KEYWORDS.has(twoWord)) return { value: twoWord, consumed: 2 };
+    if (SQL_CLAUSE_KEYWORDS.has(first)) return { value: first, consumed: 1 };
+    return null;
+  };
+
+  const currentLine = () => lines[lines.length - 1] || '';
+  const setCurrentLine = (value) => {
+    if (lines.length === 0) lines.push(value);
+    else lines[lines.length - 1] = value;
+  };
+  const newLine = (indent = contentIndent) => {
+    if (lines.length > 0) setCurrentLine(currentLine().trimEnd());
+    lines.push(SQL_INDENT.repeat(Math.max(indent, 0)));
+  };
+  const append = (value, { noLeadingSpace = false } = {}) => {
+    if (lines.length === 0) newLine(0);
+    const line = currentLine();
+    const hasContent = line.trim().length > 0;
+    const baseLine = hasContent ? line.trimEnd() : line;
+    const lastChar = baseLine.slice(-1);
+    const needsSpace = hasContent && !noLeadingSpace && !/[\s(.]/.test(lastChar) && !/^[),.;]$/.test(value);
+    setCurrentLine(baseLine + (needsSpace ? ' ' : '') + value);
+  };
+  const hasOpenExpressionParen = () => parenStack.some((entry) => entry === 'expr');
+  const clauseLineIndent = (clause) => (
+    clause === 'ON' ? indentLevel + 1 : indentLevel
+  );
+  const clauseContentIndent = (clause, lineIndent) => {
+    if (clause.startsWith('UNION')) return lineIndent;
+    return lineIndent + 1;
+  };
+
+  tokens.forEach((token, index) => {
+    if (skipCount > 0) {
+      skipCount -= 1;
+      return;
+    }
+
+    const value = tokenValue(token);
+    const nextValue = tokens[index + 1] ? tokenValue(tokens[index + 1]) : '';
+
+    if (token.type === 'comment') {
+      if (currentLine().trim() !== '') newLine();
+      append(value, { noLeadingSpace: true });
+      newLine();
+      return;
+    }
+
+    if (value === '(') {
+      const startsSubquery = nextValue === 'SELECT' || nextValue === 'WITH';
+      append(value, { noLeadingSpace: true });
+
+      if (startsSubquery) {
+        parenStack.push('subquery');
+        indentLevel += 1;
+        contentIndent = indentLevel;
+        newLine(indentLevel);
+      } else {
+        parenStack.push('expr');
+      }
+      return;
+    }
+
+    if (value === ')') {
+      const parenType = parenStack.pop();
+      if (parenType === 'subquery') {
+        indentLevel = Math.max(indentLevel - 1, 0);
+        contentIndent = indentLevel + 1;
+        if (currentLine().trim() !== '') newLine(indentLevel);
+      }
+      append(value, { noLeadingSpace: true });
+      return;
+    }
+
+    if (value === ',') {
+      append(value, { noLeadingSpace: true });
+      if (!hasOpenExpressionParen()) {
+        newLine(contentIndent);
+      }
+      return;
+    }
+
+    if (value === ';') {
+      append(value, { noLeadingSpace: true });
+      contentIndent = 0;
+      indentLevel = 0;
+      newLine(0);
+      return;
+    }
+
+    if (token.type === 'keyword') {
+      if (value === 'CASE') {
+        if (currentLine().trim() !== '' && !currentLine().trimEnd().endsWith('(')) newLine(contentIndent);
+        append(value);
+        return;
+      }
+
+      if (value === 'WHEN' || value === 'ELSE') {
+        if (currentLine().trim() !== '') newLine(contentIndent + 1);
+        append(value, { noLeadingSpace: true });
+        return;
+      }
+
+      if (value === 'END') {
+        if (currentLine().trim() !== '') newLine(contentIndent);
+        append(value, { noLeadingSpace: true });
+        return;
+      }
+
+      const clause = getClause(index);
+      if (clause) {
+        const lineIndent = clauseLineIndent(clause.value);
+        if (currentLine().trim() !== '') newLine(lineIndent);
+        append(clause.value, { noLeadingSpace: true });
+        contentIndent = clauseContentIndent(clause.value, lineIndent);
+        skipCount = clause.consumed - 1;
+        newLine(contentIndent);
+        return;
+      }
+
+      if (SQL_LINE_BREAK_KEYWORDS.has(value) && currentLine().trim() !== '') {
+        newLine(contentIndent);
+      }
+    }
+
+    append(value);
+  });
+
+  return lines
+    .map((line) => line.trimEnd())
+    .filter((line, index, all) => line.trim() !== '' || (index > 0 && index < all.length - 1))
+    .join('\n')
+    .trim();
+}
+
+function isLikelySql(code) {
+  const text = code.trim();
+  if (!text) return false;
+
+  const tokens = tokenizeSql(text).filter((token) => token.type !== 'space');
+  const keywordCount = tokens.filter((token) => token.type === 'keyword').length;
+  const firstKeyword = tokens.find((token) => token.type === 'keyword')?.value;
+  const hasCoreClause = tokens.some((token) => ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'WITH', 'CREATE', 'ALTER'].includes(token.value));
+  const hasRelationalClause = tokens.some((token) => ['FROM', 'JOIN', 'WHERE', 'GROUP', 'ORDER'].includes(token.value));
+
+  return Boolean(
+    keywordCount >= 2 &&
+    hasCoreClause &&
+    (hasRelationalClause || ['INSERT', 'UPDATE', 'DELETE', 'CREATE', 'ALTER'].includes(firstKeyword))
+  );
+}
+
+function beautifySqlSelection(text) {
+  const fencedCodeRegex = /(```([\w-]*)\s*\n)([\s\S]*?)(\n```)/gi;
+  if (fencedCodeRegex.test(text)) {
+    return text.replace(fencedCodeRegex, (_, openingFence, language = '', code, closingFence) => {
+      const normalizedLanguage = language.toLowerCase();
+      const shouldFormat = ['sql', 'mysql', 'postgresql', 'sqlite', 'plsql', 'tsql'].includes(normalizedLanguage)
+        || (!normalizedLanguage && isLikelySql(code));
+
+      return shouldFormat
+        ? `${openingFence}${formatSql(code)}${closingFence}`
+        : `${openingFence}${code}${closingFence}`;
+    });
+  }
+
+  return formatSql(text);
+}
+
+function SqlCodeBlock({ code, language }) {
+  return (
+    <code className={`language-${language} sql-highlight`}>
+      {tokenizeSql(code).map((token, index) => (
+        token.type === 'space'
+          ? token.value
+          : <span key={`${token.type}-${index}`} className={`sql-token sql-token-${token.type}`}>{token.value}</span>
+      ))}
+    </code>
+  );
+}
+
 function App() {
   const [theme, setTheme] = useState('light');
   const toggleTheme = () => {
@@ -721,6 +974,54 @@ graph TD
     });
   }, [markdownContent, updateContent]);
 
+  const handleBeautifySql = useCallback(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    const previewSelection = lastFocusedPaneRef.current === 'preview' ? getPreviewSelection() : null;
+
+    if (previewSelection) {
+      const pos = findInSource(previewSelection);
+      if (pos) {
+        const selectedSource = markdownContent.substring(pos.start, pos.end);
+        const formatted = beautifySqlSelection(selectedSource);
+        const newText = markdownContent.substring(0, pos.start) + formatted + markdownContent.substring(pos.end);
+        updateContent(newText);
+        window.getSelection()?.removeAllRanges();
+        requestAnimationFrame(() => {
+          textarea.focus();
+          textarea.selectionStart = pos.start;
+          textarea.selectionEnd = pos.start + formatted.length;
+        });
+        setCopyStatus('SQL selection beautified!');
+        setTimeout(() => setCopyStatus(''), 3000);
+        return;
+      }
+    }
+
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const selected = markdownContent.substring(start, end);
+
+    if (!selected.trim()) {
+      setCopyStatus('Highlight SQL code first, then click Beautify SQL.');
+      setTimeout(() => setCopyStatus(''), 3000);
+      textarea.focus();
+      return;
+    }
+
+    const formatted = beautifySqlSelection(selected);
+    const newText = markdownContent.substring(0, start) + formatted + markdownContent.substring(end);
+    updateContent(newText);
+    requestAnimationFrame(() => {
+      textarea.focus();
+      textarea.selectionStart = start;
+      textarea.selectionEnd = start + formatted.length;
+    });
+    setCopyStatus('SQL selection beautified!');
+    setTimeout(() => setCopyStatus(''), 3000);
+  }, [markdownContent, getPreviewSelection, findInSource, updateContent]);
+
   // parseInline – handles bold, italic, bold+italic (both * and _ syntax),
   // strikethrough, inline code, links, autolinks, and plain text
   const parseInline = (text) => {
@@ -1074,23 +1375,49 @@ graph TD
         {/* #16: Action Buttons + Status */}
         <div className="button-section">
           <div className="button-group">
-            <button onClick={toggleTheme} className="theme-toggle">
-              {theme === 'dark' ? 'Light' : 'Dark'}
+            <button
+              onClick={handleDownloadMd}
+              className="download-md"
+              title="Download the current editor content as a Markdown (.md) file"
+            >
+              Save Raw MD File
             </button>
-            <button onClick={() => setIsSyncing(!isSyncing)} className="sync-toggle">
-              {isSyncing ? 'Sync On' : 'Sync Off'}
-            </button>            
-            <button onClick={handleDownloadMd} className="download-md">Save Raw MD File</button>
-            <button onClick={handleCopy} className="copy-toggle">Copy to Clipboard</button>
+            <button
+              onClick={handleCopy}
+              className="copy-toggle"
+              title="Copy the rendered preview text to your clipboard"
+            >
+              Copy to Clipboard
+            </button>
             {/* #12: Disable button and show feedback while exporting */}
-            <button onClick={handleExportPdf} className="export-pdf" disabled={isExporting}>
+            <button
+              onClick={handleExportPdf}
+              className="export-pdf"
+              disabled={isExporting}
+              title="Export the rendered Markdown preview as a PDF file"
+            >
               {isExporting ? 'Exporting…' : 'Export to PDF'}
             </button>
             {/* Focus mode: maximize editor or preview */}
             <button
               onClick={() => setFocusMode(focusMode === 'none' ? focusTarget : 'none')}
+              title="Toggle focus mode to show only the editor or only the preview"
             >
               {focusMode !== 'none' ? 'Exit Focus' : 'Focus'}
+            </button>
+            <button
+              onClick={toggleTheme}
+              className="theme-toggle"
+              title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
+            >
+              {theme === 'dark' ? 'Light' : 'Dark'}
+            </button>
+            <button
+              onClick={() => setIsSyncing(!isSyncing)}
+              className="sync-toggle"
+              title={`${isSyncing ? 'Disable' : 'Enable'} synchronized scrolling between editor and preview`}
+            >
+              {isSyncing ? 'Sync On' : 'Sync Off'}
             </button>
           </div>
 
@@ -1117,71 +1444,78 @@ graph TD
       </div>
       {/* WYSIWYG Formatting Toolbar */}
       <div className="formatting-toolbar" onMouseDown={(e) => e.preventDefault()}>
+        {/* Frequent inline formatting */}
         <div className="toolbar-group">
-          <button title="Bold (Ctrl+B)" onClick={() => insertMarkdown('**', '**', 'bold')}>
+          <button title="Make selected text bold using Markdown **bold** syntax" onClick={() => insertMarkdown('**', '**', 'bold')}>
             <strong>B</strong>
           </button>
-          <button title="Italic (Ctrl+I)" onClick={() => insertMarkdown('*', '*', 'italic')}>
+          <button title="Make selected text italic using Markdown *italic* syntax" onClick={() => insertMarkdown('*', '*', 'italic')}>
             <em>I</em>
           </button>
-          <button title="Strikethrough" onClick={() => insertMarkdown('~~', '~~', 'strikethrough')}>
+          <button title="Insert or wrap selected text as a Markdown link" onClick={() => insertMarkdown('[', '](url)', 'link text')}>
+            &#128279; Link
+          </button>
+          <button title="Strike through selected text using Markdown ~~text~~ syntax" onClick={() => insertMarkdown('~~', '~~', 'strikethrough')}>
             <s>S</s>
           </button>
-          <button title="Inline Code" onClick={() => insertMarkdown('`', '`', 'code')}>
+          <button title="Format selected text as inline code using backticks" onClick={() => insertMarkdown('`', '`', 'code')}>
             <code>&lt;/&gt;</code>
           </button>
         </div>
         <span className="toolbar-divider" />
         <div className="toolbar-group">
-          <button title="Heading 1" onClick={() => insertMarkdown('# ', '', 'Heading 1')}>H1</button>
-          <button title="Heading 2" onClick={() => insertMarkdown('## ', '', 'Heading 2')}>H2</button>
-          <button title="Heading 3" onClick={() => insertMarkdown('### ', '', 'Heading 3')}>H3</button>
+          <button title="Insert a level 1 heading (# Heading)" onClick={() => insertMarkdown('# ', '', 'Heading 1')}>H1</button>
+          <button title="Insert a level 2 heading (## Heading)" onClick={() => insertMarkdown('## ', '', 'Heading 2')}>H2</button>
+          <button title="Insert a level 3 heading (### Heading)" onClick={() => insertMarkdown('### ', '', 'Heading 3')}>H3</button>
         </div>
         <span className="toolbar-divider" />
+        {/* Common document structure */}
         <div className="toolbar-group">
-          <button title="Unordered List" onClick={() => insertBlock('- List item')}>
+          <button title="Insert a bulleted Markdown list item" onClick={() => insertBlock('- List item')}>
             &#8226; List
           </button>
-          <button title="Ordered List" onClick={() => insertBlock('1. List item')}>
+          <button title="Insert a numbered Markdown list item" onClick={() => insertBlock('1. List item')}>
             1. List
           </button>
-          <button title="Task List" onClick={() => insertBlock('- [ ] Task item')}>
+          <button title="Insert a GitHub-style task checkbox item" onClick={() => insertBlock('- [ ] Task item')}>
             &#9744; Task
           </button>
-        </div>
-        <span className="toolbar-divider" />
-        <div className="toolbar-group">
-          <button title="Blockquote" onClick={() => insertMarkdown('> ', '', 'quote')}>
+          <button title="Format selected text as a Markdown blockquote" onClick={() => insertMarkdown('> ', '', 'quote')}>
             &#10077; Quote
           </button>
-          <button title="Link" onClick={() => insertMarkdown('[', '](url)', 'link text')}>
-            &#128279; Link
-          </button>
-          <button title="Image" onClick={() => insertMarkdown('![', '](url)', 'alt text')}>
-            &#128247; Image
+          <button title="Insert a simple two-column Markdown table" onClick={() => insertBlock('| Header 1 | Header 2 |\n|----------|----------|\n| Cell 1   | Cell 2   |')}>
+            &#9638; Table
           </button>
         </div>
         <span className="toolbar-divider" />
+        {/* Code and technical writing */}
         <div className="toolbar-group">
-          <button title="Code Block" onClick={() => insertBlock('```\ncode here\n```')}>
+          <button title="Insert a fenced code block for multi-line code snippets" onClick={() => insertBlock('```\ncode here\n```')}>
             &#123;&#125; Code
           </button>
-          <button title="Table" onClick={() => insertBlock('| Header 1 | Header 2 |\n|----------|----------|\n| Cell 1   | Cell 2   |')}>
-            &#9638; Table
+          <button title="Beautify the highlighted SQL selection or SQL fenced code block" onClick={handleBeautifySql}>
+            SQL Beautify
           </button>
-          <button title="Horizontal Rule" onClick={() => insertBlock('---')}>
+        </div>
+        <span className="toolbar-divider" />
+        {/* Less frequent media and advanced inserts */}
+        <div className="toolbar-group">
+          <button title="Insert or wrap selected text as a Markdown image with alt text and URL" onClick={() => insertMarkdown('![', '](url)', 'alt text')}>
+            &#128247; Image
+          </button>
+          <button title="Insert a horizontal divider line (---)" onClick={() => insertBlock('---')}>
             &#8213; Rule
           </button>
         </div>
         <span className="toolbar-divider" />
         <div className="toolbar-group">
-          <button title="Inline Math" onClick={() => insertMarkdown('$', '$', 'E = mc^2')}>
+          <button title="Insert inline LaTeX math using single dollar signs" onClick={() => insertMarkdown('$', '$', 'E = mc^2')}>
             &#120536; Math
           </button>
-          <button title="Block Math" onClick={() => insertBlock('$$\nx^2 + y^2 = z^2\n$$')}>
+          <button title="Insert a display LaTeX math block using double dollar signs" onClick={() => insertBlock('$$\nx^2 + y^2 = z^2\n$$')}>
             &#8721; Block Math
           </button>
-          <button title="Mermaid Diagram" onClick={() => insertBlock('```mermaid\ngraph TD\n    A[Start] --> B[End]\n```')}>
+          <button title="Insert a Mermaid diagram fenced code block" onClick={() => insertBlock('```mermaid\ngraph TD\n    A[Start] --> B[End]\n```')}>
             &#9670; Mermaid
           </button>
         </div>
@@ -1261,8 +1595,16 @@ graph TD
               components={{
                 code({ node, inline, className, children, ...props }) {
                   const match = /language-(\w+)/.exec(className || '');
+                  const language = match?.[1]?.toLowerCase();
                   if (!inline && match && match[1] === 'mermaid') {
                     return <MermaidDiagram>{children}</MermaidDiagram>;
+                  }
+                  const codeText = String(children).replace(/\n$/, '');
+                  if (!inline && (
+                    ['sql', 'mysql', 'postgresql', 'sqlite', 'plsql', 'tsql'].includes(language)
+                    || (!language && isLikelySql(codeText))
+                  )) {
+                    return <SqlCodeBlock code={codeText} language={language || 'sql'} />;
                   }
                   return <code className={className} {...props}>{children}</code>;
                 }
