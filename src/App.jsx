@@ -10,6 +10,7 @@ import html2canvas from 'html2canvas';
 import { marked } from 'marked';
 import pdfMake from 'pdfmake/build/pdfmake';
 import pdfFonts from 'pdfmake/build/vfs_fonts';
+import * as YAML from 'yaml';
 import './App.css';
 
 // #18: Safe vfs assignment for pdfmake v0.2+
@@ -407,6 +408,660 @@ function beautifyJsonSelection(text) {
   return formatJson(text);
 }
 
+const XML_LANGUAGES = new Set(['xml', 'xhtml', 'svg', 'rss', 'atom', 'wsdl', 'xsd']);
+
+function assertValidXml(xml) {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(xml.trim(), 'application/xml');
+  const parserError = doc.querySelector('parsererror');
+
+  if (parserError) {
+    throw new Error('Invalid XML. Please highlight valid XML data first.');
+  }
+
+  return doc;
+}
+
+function isLikelyXml(code) {
+  const text = code.trim();
+  if (!text || !/^<[\s\S]*>$/.test(text) || !/<\/?[A-Za-z_][\w:.-]*(?:\s|>|\/)/.test(text)) {
+    return false;
+  }
+
+  try {
+    assertValidXml(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function formatXml(xml) {
+  const text = xml.trim();
+  assertValidXml(text);
+
+  const tokens = Array.from(
+    text.matchAll(/<!--([\s\S]*?)-->|<!\[CDATA\[[\s\S]*?\]\]>|<\?[\s\S]*?\?>|<!DOCTYPE[\s\S]*?>|<\/?[^>]+>|[^<]+/gi),
+    ([value]) => value
+  );
+  const lines = [];
+  let indentLevel = 0;
+
+  tokens.forEach((token) => {
+    const trimmed = token.trim();
+    if (!trimmed) return;
+
+    if (/^<\//.test(trimmed)) {
+      indentLevel = Math.max(indentLevel - 1, 0);
+      lines.push(`${SQL_INDENT.repeat(indentLevel)}${trimmed}`);
+      return;
+    }
+
+    if (/^<!(?:--|\[CDATA\[|DOCTYPE)/i.test(trimmed) || /^<\?/.test(trimmed) || /\/\s*>$/.test(trimmed)) {
+      lines.push(`${SQL_INDENT.repeat(indentLevel)}${trimmed}`);
+      return;
+    }
+
+    if (/^</.test(trimmed)) {
+      lines.push(`${SQL_INDENT.repeat(indentLevel)}${trimmed}`);
+      indentLevel += 1;
+      return;
+    }
+
+    trimmed.split(/\r?\n/).forEach((line) => {
+      const content = line.trim();
+      if (content) lines.push(`${SQL_INDENT.repeat(indentLevel)}${content}`);
+    });
+  });
+
+  return lines.join('\n');
+}
+
+function beautifyXmlSelection(text) {
+  const fencedCodeRegex = /(```([\w-]*)\s*\n)([\s\S]*?)(\n```)/gi;
+  if (fencedCodeRegex.test(text)) {
+    let formattedAnyBlock = false;
+    const formattedText = text.replace(fencedCodeRegex, (_, openingFence, language = '', code, closingFence) => {
+      const normalizedLanguage = language.toLowerCase();
+      const shouldFormat = XML_LANGUAGES.has(normalizedLanguage)
+        || (!normalizedLanguage && isLikelyXml(code));
+
+      if (!shouldFormat) return `${openingFence}${code}${closingFence}`;
+
+      formattedAnyBlock = true;
+      return `${openingFence}${formatXml(code)}${closingFence}`;
+    });
+
+    if (!formattedAnyBlock) {
+      throw new Error('No valid XML fenced code block found in the selection.');
+    }
+
+    return formattedText;
+  }
+
+  return formatXml(text);
+}
+
+const YAML_LANGUAGES = new Set(['yaml', 'yml']);
+
+function assertValidYaml(text) {
+  const docs = YAML.parseAllDocuments(text.trim(), { prettyErrors: false });
+
+  if (docs.length === 0) {
+    throw new Error('Invalid YAML. Please highlight valid YAML data first.');
+  }
+
+  const firstError = docs.flatMap((doc) => doc.errors || [])[0];
+  if (firstError) {
+    throw new Error(firstError.message || 'Invalid YAML. Please highlight valid YAML data first.');
+  }
+
+  return docs;
+}
+
+function parseYamlDocuments(text, { allowRepair = true } = {}) {
+  try {
+    return assertValidYaml(text);
+  } catch (error) {
+    if (!allowRepair) throw error;
+
+    const repaired = repairCommonYamlIndentation(text);
+    if (repaired.trim() === text.trim()) throw error;
+
+    try {
+      return assertValidYaml(repaired);
+    } catch {
+      throw error;
+    }
+  }
+}
+
+function isValidYaml(text) {
+  try {
+    assertValidYaml(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function stripYamlComment(line) {
+  let quote = null;
+  let escaped = false;
+
+  for (let i = 0; i < line.length; i += 1) {
+    const char = line[i];
+    const previous = line[i - 1];
+
+    if (quote) {
+      if (quote === '"' && char === '\\' && !escaped) {
+        escaped = true;
+        continue;
+      }
+      if (char === quote && !escaped) quote = null;
+      escaped = false;
+      continue;
+    }
+
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+
+    if (char === '#' && (i === 0 || /\s/.test(previous))) {
+      return line.slice(0, i).trimEnd();
+    }
+  }
+
+  return line.trimEnd();
+}
+
+function normalizeYamlSpacing(line) {
+  const leading = line.match(/^\s*/)?.[0] || '';
+  let content = line.trim();
+
+  content = content.replace(/^-\s*/, '- ');
+  content = content.replace(/^(-\s+)?([^:#[\]{}]+?)\s*:\s*(.*)$/, (_, listMarker = '', key, value) => {
+    const normalizedKey = key.trim();
+    const normalizedValue = value.trim();
+    return `${listMarker}${normalizedKey}:${normalizedValue ? ` ${normalizedValue}` : ''}`;
+  });
+
+  return `${leading}${content}`;
+}
+
+function isYamlBlockScalarStart(line) {
+  return /:\s*[|>][+-]?\s*(?:#.*)?$/.test(line.trim()) || /^-\s*[|>][+-]?\s*(?:#.*)?$/.test(line.trim());
+}
+
+function yamlIndentOf(line) {
+  return line.match(/^\s*/)?.[0].length || 0;
+}
+
+function yamlMeaningfulIndent(line) {
+  const stripped = stripYamlComment(line).trim();
+  return stripped ? yamlIndentOf(line) : null;
+}
+
+function isYamlKeyLine(line) {
+  return /^-?\s*[^\s:[\]{}][^:[\]{}]*:\s*(?:[^#].*)?$/.test(stripYamlComment(line).trim());
+}
+
+function isYamlEmptyMappingLine(line) {
+  return /^-?\s*[^\s:[\]{}][^:[\]{}]*:\s*$/.test(stripYamlComment(line).trim());
+}
+
+function getNextMeaningfulYamlLine(lines, startIndex) {
+  for (let i = startIndex + 1; i < lines.length; i += 1) {
+    const stripped = stripYamlComment(lines[i]).trim();
+    if (stripped) return { line: lines[i], index: i, indent: yamlIndentOf(lines[i]), stripped };
+  }
+  return null;
+}
+
+function shouldTreatAsTopLevelYamlSection(lines, index) {
+  const line = lines[index];
+  if (yamlIndentOf(line) !== 0 || !isYamlEmptyMappingLine(line)) return false;
+
+  const previous = lines[index - 1];
+  const separatedFromPrevious = index === 0 || !stripYamlComment(previous || '').trim();
+  const next = getNextMeaningfulYamlLine(lines, index);
+
+  return separatedFromPrevious && Boolean(next && next.indent > 0);
+}
+
+function repairCommonYamlIndentation(text) {
+  const lines = text.replace(/\r\n?/g, '\n').trim().split('\n');
+  const output = [];
+  let childIndent = null;
+  let blockScalarIndent = null;
+
+  lines.forEach((line, index) => {
+    const raw = line.trimEnd();
+    const stripped = stripYamlComment(raw).trim();
+
+    if (!stripped || /^---$|^\.\.\.$/.test(stripped) || raw.trimStart().startsWith('#')) {
+      output.push(raw);
+      if (!stripped) blockScalarIndent = null;
+      return;
+    }
+
+    if (blockScalarIndent !== null) {
+      if (yamlIndentOf(raw) >= blockScalarIndent || !isYamlKeyLine(raw)) {
+        const repairedBlockLine = yamlIndentOf(raw) >= blockScalarIndent
+          ? raw
+          : `${' '.repeat(blockScalarIndent)}${raw.trim()}`;
+        output.push(repairedBlockLine);
+        return;
+      }
+      blockScalarIndent = null;
+    }
+
+    if (shouldTreatAsTopLevelYamlSection(lines, index)) {
+      childIndent = 2;
+      output.push(normalizeYamlSpacing(raw.trim()));
+      return;
+    }
+
+    const previousOutput = output[output.length - 1] || '';
+    const parentIsEmptyMapping = isYamlEmptyMappingLine(previousOutput);
+    const atRoot = yamlIndentOf(raw) === 0;
+    const hasActiveChildIndent = childIndent !== null;
+    const looksLikeChildKey = atRoot && hasActiveChildIndent && isYamlKeyLine(raw);
+
+    let repaired = raw;
+    if (looksLikeChildKey && !parentIsEmptyMapping) {
+      const next = getNextMeaningfulYamlLine(lines, index);
+      const followedByIndentedChildren = isYamlEmptyMappingLine(raw) && next && next.indent > 0;
+      const separatedFromPrevious = !stripYamlComment(lines[index - 1] || '').trim();
+
+      repaired = separatedFromPrevious && followedByIndentedChildren
+        ? normalizeYamlSpacing(raw.trim())
+        : `${' '.repeat(childIndent)}${normalizeYamlSpacing(raw.trim())}`;
+    } else {
+      repaired = normalizeYamlSpacing(raw);
+    }
+
+    output.push(repaired);
+
+    if (isYamlBlockScalarStart(repaired)) {
+      blockScalarIndent = yamlIndentOf(repaired) + 2;
+    }
+
+    const currentIndent = yamlMeaningfulIndent(repaired);
+    if (currentIndent === 0 && isYamlEmptyMappingLine(repaired)) {
+      childIndent = 2;
+    } else if (currentIndent === 0 && !isYamlKeyLine(repaired)) {
+      childIndent = null;
+    }
+  });
+
+  return output.join('\n').trim();
+}
+
+function isLikelyYaml(code) {
+  const text = code.trim();
+  if (!text || isLikelyJson(text) || isLikelyXml(text) || isLikelySql(text)) return false;
+
+  const meaningfulLines = text
+    .split(/\r?\n/)
+    .map((line) => stripYamlComment(line).trim())
+    .filter(Boolean);
+
+  if (meaningfulLines.length === 0) return false;
+
+  return meaningfulLines.some((line) => (
+    /^-\s+\S/.test(line)
+    || /^[A-Za-z0-9_'".-][^:]*:\s*(?:\S.*)?$/.test(line)
+  ));
+}
+
+function formatYaml(yaml) {
+  return parseYamlDocuments(yaml)
+    .map((doc) => doc.toString({ indent: 2, lineWidth: 80 }).trim())
+    .join('\n---\n')
+    .trim();
+}
+
+function beautifyYamlSelection(text) {
+  const fencedCodeRegex = /(```([\w-]*)\s*\n)([\s\S]*?)(\n```)/gi;
+  if (fencedCodeRegex.test(text)) {
+    let formattedAnyBlock = false;
+    const formattedText = text.replace(fencedCodeRegex, (_, openingFence, language = '', code, closingFence) => {
+      const normalizedLanguage = language.toLowerCase();
+      const shouldFormat = YAML_LANGUAGES.has(normalizedLanguage)
+        || (!normalizedLanguage && isLikelyYaml(code));
+
+      if (!shouldFormat) return `${openingFence}${code}${closingFence}`;
+
+      formattedAnyBlock = true;
+      return `${openingFence}${formatYaml(code)}${closingFence}`;
+    });
+
+    if (!formattedAnyBlock) {
+      throw new Error('No valid YAML fenced code block found in the selection.');
+    }
+
+    return formattedText;
+  }
+
+  if (!isLikelyYaml(text)) throw new Error('Invalid YAML. Please highlight valid YAML data first.');
+  return formatYaml(text);
+}
+
+function minifySql(sql) {
+  const tokens = tokenizeSql(sql.trim()).filter((token) => token.type !== 'space');
+  if (tokens.length === 0) return '';
+
+  const tokenValue = (token) => (
+    token.type === 'keyword' || token.type === 'function'
+      ? token.value.toUpperCase()
+      : token.value
+  );
+  const isWordLike = (token) => ['keyword', 'function', 'identifier', 'number', 'string'].includes(token.type);
+  const needsSpace = (previous, current) => {
+    if (!previous) return false;
+    if (previous.type === 'comment' || current.type === 'comment') return true;
+    if (current.type === 'punctuation' && /^[),.;]$/.test(current.value)) return false;
+    if (previous.type === 'punctuation' && /^[([.]$/.test(previous.value)) return false;
+    if (previous.type === 'punctuation' && previous.value === ',') return false;
+    if (current.type === 'punctuation' && current.value === '(') return false;
+    if (previous.type === 'operator' || current.type === 'operator') return false;
+    return isWordLike(previous) && isWordLike(current);
+  };
+
+  return tokens.reduce((output, token, index) => {
+    const previous = tokens[index - 1];
+    const separator = needsSpace(previous, token) ? ' ' : '';
+    const suffix = token.type === 'comment' && token.value.startsWith('--') ? '\n' : '';
+    return `${output}${separator}${tokenValue(token)}${suffix}`;
+  }, '').trim();
+}
+
+function minifySqlSelection(text) {
+  const fencedCodeRegex = /(```([\w-]*)\s*\n)([\s\S]*?)(\n```)/gi;
+  if (fencedCodeRegex.test(text)) {
+    let minifiedAnyBlock = false;
+    const minifiedText = text.replace(fencedCodeRegex, (_, openingFence, language = '', code, closingFence) => {
+      const normalizedLanguage = language.toLowerCase();
+      const shouldMinify = ['sql', 'mysql', 'postgresql', 'sqlite', 'plsql', 'tsql'].includes(normalizedLanguage)
+        || (!normalizedLanguage && isLikelySql(code));
+
+      if (!shouldMinify) return `${openingFence}${code}${closingFence}`;
+
+      minifiedAnyBlock = true;
+      return `${openingFence}${minifySql(code)}${closingFence}`;
+    });
+
+    if (!minifiedAnyBlock) {
+      throw new Error('No valid SQL fenced code block found in the selection.');
+    }
+
+    return minifiedText;
+  }
+
+  return minifySql(text);
+}
+
+function minifyJson(json) {
+  return JSON.stringify(JSON.parse(json.trim()));
+}
+
+function minifyJsonSelection(text) {
+  const fencedCodeRegex = /(```([\w-]*)\s*\n)([\s\S]*?)(\n```)/gi;
+  if (fencedCodeRegex.test(text)) {
+    let minifiedAnyBlock = false;
+    const minifiedText = text.replace(fencedCodeRegex, (_, openingFence, language = '', code, closingFence) => {
+      const normalizedLanguage = language.toLowerCase();
+      const shouldMinify = normalizedLanguage === 'json' || (!normalizedLanguage && isLikelyJson(code));
+
+      if (!shouldMinify) return `${openingFence}${code}${closingFence}`;
+
+      minifiedAnyBlock = true;
+      return `${openingFence}${minifyJson(code)}${closingFence}`;
+    });
+
+    if (!minifiedAnyBlock) {
+      throw new Error('No valid JSON fenced code block found in the selection.');
+    }
+
+    return minifiedText;
+  }
+
+  return minifyJson(text);
+}
+
+function minifyXml(xml) {
+  const text = xml.trim();
+  assertValidXml(text);
+  return text.replace(/>\s+</g, '><');
+}
+
+function minifyXmlSelection(text) {
+  const fencedCodeRegex = /(```([\w-]*)\s*\n)([\s\S]*?)(\n```)/gi;
+  if (fencedCodeRegex.test(text)) {
+    let minifiedAnyBlock = false;
+    const minifiedText = text.replace(fencedCodeRegex, (_, openingFence, language = '', code, closingFence) => {
+      const normalizedLanguage = language.toLowerCase();
+      const shouldMinify = XML_LANGUAGES.has(normalizedLanguage)
+        || (!normalizedLanguage && isLikelyXml(code));
+
+      if (!shouldMinify) return `${openingFence}${code}${closingFence}`;
+
+      minifiedAnyBlock = true;
+      return `${openingFence}${minifyXml(code)}${closingFence}`;
+    });
+
+    if (!minifiedAnyBlock) {
+      throw new Error('No valid XML fenced code block found in the selection.');
+    }
+
+    return minifiedText;
+  }
+
+  return minifyXml(text);
+}
+
+function minifyYaml(yaml) {
+  return parseYamlDocuments(yaml)
+    .map((doc) => YAML.stringify(doc.toJSON(), { collectionStyle: 'flow', lineWidth: 0 }).trim())
+    .join('\n---\n')
+    .trim();
+}
+
+function minifyYamlSelection(text) {
+  const fencedCodeRegex = /(```([\w-]*)\s*\n)([\s\S]*?)(\n```)/gi;
+  if (fencedCodeRegex.test(text)) {
+    let minifiedAnyBlock = false;
+    const minifiedText = text.replace(fencedCodeRegex, (_, openingFence, language = '', code, closingFence) => {
+      const normalizedLanguage = language.toLowerCase();
+      const shouldMinify = YAML_LANGUAGES.has(normalizedLanguage)
+        || (!normalizedLanguage && isLikelyYaml(code));
+
+      if (!shouldMinify) return `${openingFence}${code}${closingFence}`;
+
+      minifiedAnyBlock = true;
+      return `${openingFence}${minifyYaml(code)}${closingFence}`;
+    });
+
+    if (!minifiedAnyBlock) {
+      throw new Error('No valid YAML fenced code block found in the selection.');
+    }
+
+    return minifiedText;
+  }
+
+  if (!isLikelyYaml(text)) throw new Error('Invalid YAML. Please highlight valid YAML data first.');
+  return minifyYaml(text);
+}
+
+const DATA_FORMAT_LANGUAGES = {
+  json: new Set(['json']),
+  xml: XML_LANGUAGES,
+  yaml: YAML_LANGUAGES,
+};
+
+const DATA_FORMAT_LABELS = {
+  json: 'JSON',
+  xml: 'XML',
+  yaml: 'YAML',
+};
+
+function isLikelyDataFormat(code, format) {
+  if (format === 'json') return isLikelyJson(code);
+  if (format === 'xml') return isLikelyXml(code);
+  if (format === 'yaml') return isLikelyYaml(code);
+  return false;
+}
+
+function parseDataFormat(code, format) {
+  if (format === 'json') return JSON.parse(code.trim());
+
+  if (format === 'yaml') {
+    const docs = parseYamlDocuments(code);
+    const values = docs.map((doc) => doc.toJSON());
+    return values.length === 1 ? values[0] : values;
+  }
+
+  if (format === 'xml') {
+    const doc = assertValidXml(code);
+    return xmlDocumentToObject(doc);
+  }
+
+  throw new Error(`Unsupported source format: ${format}`);
+}
+
+function stringifyDataFormat(value, format) {
+  if (format === 'json') return JSON.stringify(value, null, JSON_INDENT);
+  if (format === 'yaml') return YAML.stringify(value, { indent: 2, lineWidth: 80 }).trim();
+  if (format === 'xml') return objectToXmlDocument(value);
+  throw new Error(`Unsupported target format: ${format}`);
+}
+
+function convertDataFormat(code, fromFormat, toFormat) {
+  if (fromFormat === toFormat) return code.trim();
+  return stringifyDataFormat(parseDataFormat(code, fromFormat), toFormat);
+}
+
+function convertDataSelection(text, fromFormat, toFormat) {
+  const fencedCodeRegex = /```([\w-]*)\s*\n([\s\S]*?)\n```/gi;
+  if (fencedCodeRegex.test(text)) {
+    let convertedAnyBlock = false;
+    const convertedText = text.replace(fencedCodeRegex, (match, language = '', code) => {
+      const normalizedLanguage = language.toLowerCase();
+      const sourceMatches = DATA_FORMAT_LANGUAGES[fromFormat]?.has(normalizedLanguage)
+        || (!normalizedLanguage && isLikelyDataFormat(code, fromFormat));
+
+      if (!sourceMatches) return match;
+
+      convertedAnyBlock = true;
+      return `\`\`\`${toFormat}\n${convertDataFormat(code, fromFormat, toFormat)}\n\`\`\``;
+    });
+
+    if (!convertedAnyBlock) {
+      throw new Error(`No valid ${DATA_FORMAT_LABELS[fromFormat]} fenced code block found in the selection.`);
+    }
+
+    return convertedText;
+  }
+
+  if (!isLikelyDataFormat(text, fromFormat)) {
+    throw new Error(`Invalid ${DATA_FORMAT_LABELS[fromFormat]}. Please highlight valid ${DATA_FORMAT_LABELS[fromFormat]} data first.`);
+  }
+
+  return convertDataFormat(text, fromFormat, toFormat);
+}
+
+function xmlDocumentToObject(doc) {
+  const root = doc.documentElement;
+  return { [root.nodeName]: xmlElementToObject(root) };
+}
+
+function xmlElementToObject(element) {
+  const attributes = Array.from(element.attributes || {});
+  const childElements = Array.from(element.childNodes).filter((node) => node.nodeType === Node.ELEMENT_NODE);
+  const text = Array.from(element.childNodes)
+    .filter((node) => node.nodeType === Node.TEXT_NODE || node.nodeType === Node.CDATA_SECTION_NODE)
+    .map((node) => node.nodeValue.trim())
+    .filter(Boolean)
+    .join(' ');
+
+  if (attributes.length === 0 && childElements.length === 0) return text;
+
+  const output = {};
+  if (attributes.length > 0) {
+    output['@attributes'] = Object.fromEntries(attributes.map((attr) => [attr.name, attr.value]));
+  }
+
+  childElements.forEach((child) => {
+    const childValue = xmlElementToObject(child);
+    if (Object.prototype.hasOwnProperty.call(output, child.nodeName)) {
+      output[child.nodeName] = Array.isArray(output[child.nodeName])
+        ? [...output[child.nodeName], childValue]
+        : [output[child.nodeName], childValue];
+    } else {
+      output[child.nodeName] = childValue;
+    }
+  });
+
+  if (text) output['#text'] = text;
+  return output;
+}
+
+function escapeXmlValue(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+function toXmlTagName(name, fallback = 'item') {
+  const safeName = String(name || fallback).replace(/[^A-Za-z0-9_.:-]/g, '_');
+  return /^[A-Za-z_]/.test(safeName) ? safeName : `_${safeName}`;
+}
+
+function objectToXmlDocument(value) {
+  if (value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length === 1) {
+    const [rootName] = Object.keys(value);
+    return objectToXmlElement(rootName, value[rootName]);
+  }
+
+  return objectToXmlElement('root', value);
+}
+
+function objectToXmlElement(name, value, indentLevel = 0) {
+  const indent = '  '.repeat(indentLevel);
+  const tagName = toXmlTagName(name);
+
+  if (Array.isArray(value)) {
+    return value.map((item) => objectToXmlElement(tagName, item, indentLevel)).join('\n');
+  }
+
+  if (value === null || typeof value !== 'object') {
+    return `${indent}<${tagName}>${escapeXmlValue(value ?? '')}</${tagName}>`;
+  }
+
+  const attributes = value['@attributes'] && typeof value['@attributes'] === 'object' ? value['@attributes'] : {};
+  const attributeText = Object.entries(attributes)
+    .map(([attrName, attrValue]) => ` ${toXmlTagName(attrName, 'attr')}="${escapeXmlValue(attrValue)}"`)
+    .join('');
+  const childEntries = Object.entries(value).filter(([key]) => key !== '@attributes' && key !== '#text');
+  const text = value['#text'];
+
+  if (childEntries.length === 0) {
+    return `${indent}<${tagName}${attributeText}>${escapeXmlValue(text ?? '')}</${tagName}>`;
+  }
+
+  const children = childEntries
+    .map(([childName, childValue]) => objectToXmlElement(childName, childValue, indentLevel + 1))
+    .join('\n');
+  const textLine = text ? `\n${'  '.repeat(indentLevel + 1)}${escapeXmlValue(text)}` : '';
+
+  return `${indent}<${tagName}${attributeText}>${textLine}\n${children}\n${indent}</${tagName}>`;
+}
+
 function tokenizeJson(code) {
   const rawTokens = Array.from(
     code.matchAll(/("(?:\\.|[^"\\])*"|true|false|null|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|[{}\[\],:]|\s+|.)/g),
@@ -424,6 +1079,41 @@ function tokenizeJson(code) {
     if (value === 'null') return { type: 'null', value };
     if (/^[{}\[\],:]$/.test(value)) return { type: 'punctuation', value };
     return { type: 'plain', value };
+  });
+}
+
+function tokenizeXmlTag(tag) {
+  let hasTagName = false;
+  return Array.from(tag.matchAll(/(<\/?|\/?>|\?>|=|"[^"]*"|'[^']*'|[A-Za-z_][\w:.-]*|\s+|.)/g), ([, value]) => {
+    if (/^\s+$/.test(value)) return { type: 'space', value };
+    if (/^(<\/?|\/?>|\?>)$/.test(value)) return { type: 'punctuation', value };
+    if (value === '=') return { type: 'operator', value };
+    if (/^["']/.test(value)) return { type: 'attr-value', value };
+    if (/^[A-Za-z_]/.test(value)) {
+      if (!hasTagName) {
+        hasTagName = true;
+        return { type: 'tag-name', value };
+      }
+      return { type: 'attr-name', value };
+    }
+    return { type: 'plain', value };
+  });
+}
+
+function tokenizeXml(code) {
+  const rawTokens = Array.from(
+    code.matchAll(/(<!--[\s\S]*?-->|<!\[CDATA\[[\s\S]*?\]\]>|<\?[\s\S]*?\?>|<!DOCTYPE[\s\S]*?>|<\/?[^>]+>|&[A-Za-z0-9#]+;|\s+|[^<&\s]+)/gi),
+    ([, value]) => value
+  );
+
+  return rawTokens.flatMap((value) => {
+    if (/^\s+$/.test(value)) return [{ type: 'space', value }];
+    if (/^<!--/.test(value)) return [{ type: 'comment', value }];
+    if (/^<!\[CDATA\[/.test(value)) return [{ type: 'cdata', value }];
+    if (/^<!DOCTYPE/i.test(value)) return [{ type: 'doctype', value }];
+    if (/^<\?/.test(value) || /^<\/?/.test(value)) return tokenizeXmlTag(value);
+    if (/^&[A-Za-z0-9#]+;$/.test(value)) return [{ type: 'entity', value }];
+    return [{ type: 'text', value }];
   });
 }
 
@@ -446,6 +1136,18 @@ function JsonCodeBlock({ code, language }) {
         token.type === 'space'
           ? token.value
           : <span key={`${token.type}-${index}`} className={`json-token json-token-${token.type}`}>{token.value}</span>
+      ))}
+    </code>
+  );
+}
+
+function XmlCodeBlock({ code, language }) {
+  return (
+    <code className={`language-${language} xml-highlight`}>
+      {tokenizeXml(code).map((token, index) => (
+        token.type === 'space'
+          ? token.value
+          : <span key={`${token.type}-${index}`} className={`xml-token xml-token-${token.type}`}>{token.value}</span>
       ))}
     </code>
   );
@@ -1159,6 +1861,435 @@ graph TD
     }
   }, [markdownContent, getPreviewSelection, findInSource, updateContent]);
 
+  const handleBeautifyXml = useCallback(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    const showError = (message = 'Invalid XML. Please highlight valid XML data first.') => {
+      setCopyStatus(message);
+      setTimeout(() => setCopyStatus(''), 3000);
+    };
+
+    const previewSelection = lastFocusedPaneRef.current === 'preview' ? getPreviewSelection() : null;
+
+    if (previewSelection) {
+      const pos = findInSource(previewSelection);
+      if (pos) {
+        try {
+          const selectedSource = markdownContent.substring(pos.start, pos.end);
+          const formatted = beautifyXmlSelection(selectedSource);
+          const newText = markdownContent.substring(0, pos.start) + formatted + markdownContent.substring(pos.end);
+          updateContent(newText);
+          window.getSelection()?.removeAllRanges();
+          requestAnimationFrame(() => {
+            textarea.focus();
+            textarea.selectionStart = pos.start;
+            textarea.selectionEnd = pos.start + formatted.length;
+          });
+          setCopyStatus('XML selection beautified!');
+          setTimeout(() => setCopyStatus(''), 3000);
+        } catch (err) {
+          showError(err.message);
+        }
+        return;
+      }
+    }
+
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const selected = markdownContent.substring(start, end);
+
+    if (!selected.trim()) {
+      showError('Highlight XML data first, then click Beautify XML.');
+      textarea.focus();
+      return;
+    }
+
+    try {
+      const formatted = beautifyXmlSelection(selected);
+      const newText = markdownContent.substring(0, start) + formatted + markdownContent.substring(end);
+      updateContent(newText);
+      requestAnimationFrame(() => {
+        textarea.focus();
+        textarea.selectionStart = start;
+        textarea.selectionEnd = start + formatted.length;
+      });
+      setCopyStatus('XML selection beautified!');
+      setTimeout(() => setCopyStatus(''), 3000);
+    } catch (err) {
+      showError(err.message);
+      textarea.focus();
+    }
+  }, [markdownContent, getPreviewSelection, findInSource, updateContent]);
+
+  const handleBeautifyYaml = useCallback(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    const showError = (message = 'Invalid YAML. Please highlight valid YAML data first.') => {
+      setCopyStatus(message);
+      setTimeout(() => setCopyStatus(''), 3000);
+    };
+
+    const previewSelection = lastFocusedPaneRef.current === 'preview' ? getPreviewSelection() : null;
+
+    if (previewSelection) {
+      const pos = findInSource(previewSelection);
+      if (pos) {
+        try {
+          const selectedSource = markdownContent.substring(pos.start, pos.end);
+          const formatted = beautifyYamlSelection(selectedSource);
+          const newText = markdownContent.substring(0, pos.start) + formatted + markdownContent.substring(pos.end);
+          updateContent(newText);
+          window.getSelection()?.removeAllRanges();
+          requestAnimationFrame(() => {
+            textarea.focus();
+            textarea.selectionStart = pos.start;
+            textarea.selectionEnd = pos.start + formatted.length;
+          });
+          setCopyStatus('YAML selection beautified!');
+          setTimeout(() => setCopyStatus(''), 3000);
+        } catch (err) {
+          showError(err.message);
+        }
+        return;
+      }
+    }
+
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const selected = markdownContent.substring(start, end);
+
+    if (!selected.trim()) {
+      showError('Highlight YAML data first, then click Beautify YAML.');
+      textarea.focus();
+      return;
+    }
+
+    try {
+      const formatted = beautifyYamlSelection(selected);
+      const newText = markdownContent.substring(0, start) + formatted + markdownContent.substring(end);
+      updateContent(newText);
+      requestAnimationFrame(() => {
+        textarea.focus();
+        textarea.selectionStart = start;
+        textarea.selectionEnd = start + formatted.length;
+      });
+      setCopyStatus('YAML selection beautified!');
+      setTimeout(() => setCopyStatus(''), 3000);
+    } catch (err) {
+      showError(err.message);
+      textarea.focus();
+    }
+  }, [markdownContent, getPreviewSelection, findInSource, updateContent]);
+
+  const handleMinifySql = useCallback(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    const showError = (message = 'Invalid SQL. Please highlight valid SQL code first.') => {
+      setCopyStatus(message);
+      setTimeout(() => setCopyStatus(''), 3000);
+    };
+
+    const previewSelection = lastFocusedPaneRef.current === 'preview' ? getPreviewSelection() : null;
+
+    if (previewSelection) {
+      const pos = findInSource(previewSelection);
+      if (pos) {
+        try {
+          const selectedSource = markdownContent.substring(pos.start, pos.end);
+          const minified = minifySqlSelection(selectedSource);
+          const newText = markdownContent.substring(0, pos.start) + minified + markdownContent.substring(pos.end);
+          updateContent(newText);
+          window.getSelection()?.removeAllRanges();
+          requestAnimationFrame(() => {
+            textarea.focus();
+            textarea.selectionStart = pos.start;
+            textarea.selectionEnd = pos.start + minified.length;
+          });
+          setCopyStatus('SQL selection minified!');
+          setTimeout(() => setCopyStatus(''), 3000);
+        } catch (err) {
+          showError(err.message);
+        }
+        return;
+      }
+    }
+
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const selected = markdownContent.substring(start, end);
+
+    if (!selected.trim()) {
+      showError('Highlight SQL code first, then click Minify SQL.');
+      textarea.focus();
+      return;
+    }
+
+    try {
+      const minified = minifySqlSelection(selected);
+      const newText = markdownContent.substring(0, start) + minified + markdownContent.substring(end);
+      updateContent(newText);
+      requestAnimationFrame(() => {
+        textarea.focus();
+        textarea.selectionStart = start;
+        textarea.selectionEnd = start + minified.length;
+      });
+      setCopyStatus('SQL selection minified!');
+      setTimeout(() => setCopyStatus(''), 3000);
+    } catch (err) {
+      showError(err.message);
+      textarea.focus();
+    }
+  }, [markdownContent, getPreviewSelection, findInSource, updateContent]);
+
+  const handleMinifyJson = useCallback(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    const showError = (message = 'Invalid JSON. Please highlight valid JSON data first.') => {
+      setCopyStatus(message);
+      setTimeout(() => setCopyStatus(''), 3000);
+    };
+
+    const previewSelection = lastFocusedPaneRef.current === 'preview' ? getPreviewSelection() : null;
+
+    if (previewSelection) {
+      const pos = findInSource(previewSelection);
+      if (pos) {
+        try {
+          const selectedSource = markdownContent.substring(pos.start, pos.end);
+          const minified = minifyJsonSelection(selectedSource);
+          const newText = markdownContent.substring(0, pos.start) + minified + markdownContent.substring(pos.end);
+          updateContent(newText);
+          window.getSelection()?.removeAllRanges();
+          requestAnimationFrame(() => {
+            textarea.focus();
+            textarea.selectionStart = pos.start;
+            textarea.selectionEnd = pos.start + minified.length;
+          });
+          setCopyStatus('JSON selection minified!');
+          setTimeout(() => setCopyStatus(''), 3000);
+        } catch (err) {
+          showError(err.message);
+        }
+        return;
+      }
+    }
+
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const selected = markdownContent.substring(start, end);
+
+    if (!selected.trim()) {
+      showError('Highlight JSON data first, then click Minify JSON.');
+      textarea.focus();
+      return;
+    }
+
+    try {
+      const minified = minifyJsonSelection(selected);
+      const newText = markdownContent.substring(0, start) + minified + markdownContent.substring(end);
+      updateContent(newText);
+      requestAnimationFrame(() => {
+        textarea.focus();
+        textarea.selectionStart = start;
+        textarea.selectionEnd = start + minified.length;
+      });
+      setCopyStatus('JSON selection minified!');
+      setTimeout(() => setCopyStatus(''), 3000);
+    } catch (err) {
+      showError(err.message);
+      textarea.focus();
+    }
+  }, [markdownContent, getPreviewSelection, findInSource, updateContent]);
+
+  const handleMinifyXml = useCallback(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    const showError = (message = 'Invalid XML. Please highlight valid XML data first.') => {
+      setCopyStatus(message);
+      setTimeout(() => setCopyStatus(''), 3000);
+    };
+
+    const previewSelection = lastFocusedPaneRef.current === 'preview' ? getPreviewSelection() : null;
+
+    if (previewSelection) {
+      const pos = findInSource(previewSelection);
+      if (pos) {
+        try {
+          const selectedSource = markdownContent.substring(pos.start, pos.end);
+          const minified = minifyXmlSelection(selectedSource);
+          const newText = markdownContent.substring(0, pos.start) + minified + markdownContent.substring(pos.end);
+          updateContent(newText);
+          window.getSelection()?.removeAllRanges();
+          requestAnimationFrame(() => {
+            textarea.focus();
+            textarea.selectionStart = pos.start;
+            textarea.selectionEnd = pos.start + minified.length;
+          });
+          setCopyStatus('XML selection minified!');
+          setTimeout(() => setCopyStatus(''), 3000);
+        } catch (err) {
+          showError(err.message);
+        }
+        return;
+      }
+    }
+
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const selected = markdownContent.substring(start, end);
+
+    if (!selected.trim()) {
+      showError('Highlight XML data first, then click Minify XML.');
+      textarea.focus();
+      return;
+    }
+
+    try {
+      const minified = minifyXmlSelection(selected);
+      const newText = markdownContent.substring(0, start) + minified + markdownContent.substring(end);
+      updateContent(newText);
+      requestAnimationFrame(() => {
+        textarea.focus();
+        textarea.selectionStart = start;
+        textarea.selectionEnd = start + minified.length;
+      });
+      setCopyStatus('XML selection minified!');
+      setTimeout(() => setCopyStatus(''), 3000);
+    } catch (err) {
+      showError(err.message);
+      textarea.focus();
+    }
+  }, [markdownContent, getPreviewSelection, findInSource, updateContent]);
+
+  const handleMinifyYaml = useCallback(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    const showError = (message = 'Invalid YAML. Please highlight valid YAML data first.') => {
+      setCopyStatus(message);
+      setTimeout(() => setCopyStatus(''), 3000);
+    };
+
+    const previewSelection = lastFocusedPaneRef.current === 'preview' ? getPreviewSelection() : null;
+
+    if (previewSelection) {
+      const pos = findInSource(previewSelection);
+      if (pos) {
+        try {
+          const selectedSource = markdownContent.substring(pos.start, pos.end);
+          const minified = minifyYamlSelection(selectedSource);
+          const newText = markdownContent.substring(0, pos.start) + minified + markdownContent.substring(pos.end);
+          updateContent(newText);
+          window.getSelection()?.removeAllRanges();
+          requestAnimationFrame(() => {
+            textarea.focus();
+            textarea.selectionStart = pos.start;
+            textarea.selectionEnd = pos.start + minified.length;
+          });
+          setCopyStatus('YAML selection minified!');
+          setTimeout(() => setCopyStatus(''), 3000);
+        } catch (err) {
+          showError(err.message);
+        }
+        return;
+      }
+    }
+
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const selected = markdownContent.substring(start, end);
+
+    if (!selected.trim()) {
+      showError('Highlight YAML data first, then click Minify YAML.');
+      textarea.focus();
+      return;
+    }
+
+    try {
+      const minified = minifyYamlSelection(selected);
+      const newText = markdownContent.substring(0, start) + minified + markdownContent.substring(end);
+      updateContent(newText);
+      requestAnimationFrame(() => {
+        textarea.focus();
+        textarea.selectionStart = start;
+        textarea.selectionEnd = start + minified.length;
+      });
+      setCopyStatus('YAML selection minified!');
+      setTimeout(() => setCopyStatus(''), 3000);
+    } catch (err) {
+      showError(err.message);
+      textarea.focus();
+    }
+  }, [markdownContent, getPreviewSelection, findInSource, updateContent]);
+
+  const handleConvertData = useCallback((fromFormat, toFormat) => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    const fromLabel = DATA_FORMAT_LABELS[fromFormat];
+    const toLabel = DATA_FORMAT_LABELS[toFormat];
+    const showError = (message = `Invalid ${fromLabel}. Please highlight valid ${fromLabel} data first.`) => {
+      setCopyStatus(message);
+      setTimeout(() => setCopyStatus(''), 3000);
+    };
+
+    const previewSelection = lastFocusedPaneRef.current === 'preview' ? getPreviewSelection() : null;
+
+    if (previewSelection) {
+      const pos = findInSource(previewSelection);
+      if (pos) {
+        try {
+          const selectedSource = markdownContent.substring(pos.start, pos.end);
+          const converted = convertDataSelection(selectedSource, fromFormat, toFormat);
+          const newText = markdownContent.substring(0, pos.start) + converted + markdownContent.substring(pos.end);
+          updateContent(newText);
+          window.getSelection()?.removeAllRanges();
+          requestAnimationFrame(() => {
+            textarea.focus();
+            textarea.selectionStart = pos.start;
+            textarea.selectionEnd = pos.start + converted.length;
+          });
+          setCopyStatus(`${fromLabel} converted to ${toLabel}!`);
+          setTimeout(() => setCopyStatus(''), 3000);
+        } catch (err) {
+          showError(err.message);
+        }
+        return;
+      }
+    }
+
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const selected = markdownContent.substring(start, end);
+
+    if (!selected.trim()) {
+      showError(`Highlight ${fromLabel} data first, then choose Convert to ${toLabel}.`);
+      textarea.focus();
+      return;
+    }
+
+    try {
+      const converted = convertDataSelection(selected, fromFormat, toFormat);
+      const newText = markdownContent.substring(0, start) + converted + markdownContent.substring(end);
+      updateContent(newText);
+      requestAnimationFrame(() => {
+        textarea.focus();
+        textarea.selectionStart = start;
+        textarea.selectionEnd = start + converted.length;
+      });
+      setCopyStatus(`${fromLabel} converted to ${toLabel}!`);
+      setTimeout(() => setCopyStatus(''), 3000);
+    } catch (err) {
+      showError(err.message);
+      textarea.focus();
+    }
+  }, [markdownContent, getPreviewSelection, findInSource, updateContent]);
+
   // parseInline – handles bold, italic, bold+italic (both * and _ syntax),
   // strikethrough, inline code, links, autolinks, and plain text
   const parseInline = (text) => {
@@ -1630,34 +2761,93 @@ graph TD
           <button title="Insert a fenced code block for multi-line code snippets" onClick={() => insertBlock('```\ncode here\n```')}>
             &#123;&#125; Code
           </button>
-          <button title="Beautify the highlighted SQL selection or SQL fenced code block" onClick={handleBeautifySql}>
-            SQL Beautify
-          </button>
-          <button title="Beautify the highlighted JSON selection or JSON fenced code block" onClick={handleBeautifyJson}>
-            JSON Beautify
-          </button>
+          <select
+            className="toolbar-select"
+            aria-label="Format selected code"
+            title="Beautify or minify the highlighted SQL, JSON, XML, or YAML selection"
+            value=""
+            onMouseDown={(e) => e.stopPropagation()}
+            onChange={(e) => {
+              const action = e.target.value;
+              if (action === 'beautify-sql') handleBeautifySql();
+              if (action === 'minify-sql') handleMinifySql();
+              if (action === 'beautify-json') handleBeautifyJson();
+              if (action === 'minify-json') handleMinifyJson();
+              if (action === 'beautify-xml') handleBeautifyXml();
+              if (action === 'minify-xml') handleMinifyXml();
+              if (action === 'beautify-yaml') handleBeautifyYaml();
+              if (action === 'minify-yaml') handleMinifyYaml();
+            }}
+          >
+            <option value="" disabled>Format Code</option>
+            <optgroup label="SQL">
+              <option value="beautify-sql">Beautify SQL</option>
+              <option value="minify-sql">Minify SQL</option>
+            </optgroup>
+            <optgroup label="JSON">
+              <option value="beautify-json">Beautify JSON</option>
+              <option value="minify-json">Minify JSON</option>
+            </optgroup>
+            <optgroup label="XML">
+              <option value="beautify-xml">Beautify XML</option>
+              <option value="minify-xml">Minify XML</option>
+            </optgroup>
+            <optgroup label="YAML">
+              <option value="beautify-yaml">Beautify YAML</option>
+              <option value="minify-yaml">Minify YAML</option>
+            </optgroup>
+          </select>
+          <select
+            className="toolbar-select"
+            aria-label="Convert selected data"
+            title="Convert highlighted JSON, XML, or YAML data to another supported format"
+            value=""
+            onMouseDown={(e) => e.stopPropagation()}
+            onChange={(e) => {
+              const [fromFormat, toFormat] = e.target.value.split('-to-');
+              if (fromFormat && toFormat) handleConvertData(fromFormat, toFormat);
+            }}
+          >
+            <option value="" disabled>Convert</option>
+            <optgroup label="From JSON">
+              <option value="json-to-xml">JSON → XML</option>
+              <option value="json-to-yaml">JSON → YAML</option>
+            </optgroup>
+            <optgroup label="From XML">
+              <option value="xml-to-json">XML → JSON</option>
+              <option value="xml-to-yaml">XML → YAML</option>
+            </optgroup>
+            <optgroup label="From YAML">
+              <option value="yaml-to-json">YAML → JSON</option>
+              <option value="yaml-to-xml">YAML → XML</option>
+            </optgroup>
+          </select>
         </div>
         <span className="toolbar-divider" />
         {/* Less frequent media and advanced inserts */}
         <div className="toolbar-group">
-          <button title="Insert or wrap selected text as a Markdown image with alt text and URL" onClick={() => insertMarkdown('![', '](url)', 'alt text')}>
-            &#128247; Image
-          </button>
-          <button title="Insert a horizontal divider line (---)" onClick={() => insertBlock('---')}>
-            &#8213; Rule
-          </button>
-        </div>
-        <span className="toolbar-divider" />
-        <div className="toolbar-group">
-          <button title="Insert inline LaTeX math using single dollar signs" onClick={() => insertMarkdown('$', '$', 'E = mc^2')}>
-            &#120536; Math
-          </button>
-          <button title="Insert a display LaTeX math block using double dollar signs" onClick={() => insertBlock('$$\nx^2 + y^2 = z^2\n$$')}>
-            &#8721; Block Math
-          </button>
-          <button title="Insert a Mermaid diagram fenced code block" onClick={() => insertBlock('```mermaid\ngraph TD\n    A[Start] --> B[End]\n```')}>
-            &#9670; Mermaid
-          </button>
+          <select
+            className="toolbar-select"
+            aria-label="Insert advanced Markdown content"
+            title="Insert media, rules, math, or diagrams"
+            value=""
+            onMouseDown={(e) => e.stopPropagation()}
+            onChange={(e) => {
+              const action = e.target.value;
+              if (action === 'image') insertMarkdown('![', '](url)', 'alt text');
+              if (action === 'rule') insertBlock('---');
+              if (action === 'inline-math') insertMarkdown('$', '$', 'E = mc^2');
+              if (action === 'block-math') insertBlock('$$\nx^2 + y^2 = z^2\n$$');
+              if (action === 'mermaid') insertBlock('```mermaid\ngraph TD\n    A[Start] --> B[End]\n```');
+            }}
+          >
+            <option value="" disabled>Insert</option>
+            <option value="image">📷 Image</option>
+            <option value="rule">— Horizontal Rule</option>
+            <option value="inline-math">𝛘 Inline Math</option>
+            <option value="block-math">∑ Block Math</option>
+            <option value="mermaid">◇ Mermaid Diagram</option>
+          </select>
         </div>
       </div>
       <div className="editor-area">
@@ -1748,6 +2938,9 @@ graph TD
                   }
                   if (!inline && (language === 'json' || (!language && isLikelyJson(codeText)))) {
                     return <JsonCodeBlock code={codeText} language={language || 'json'} />;
+                  }
+                  if (!inline && (XML_LANGUAGES.has(language) || (!language && isLikelyXml(codeText)))) {
+                    return <XmlCodeBlock code={codeText} language={language || 'xml'} />;
                   }
                   return <code className={className} {...props}>{children}</code>;
                 }

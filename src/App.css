@@ -160,7 +160,54 @@ button.export-pdf:disabled {
   background-color: #505050;
 }
 
+.toolbar-select {
+  appearance: none;
+  background-color: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: #cccccc;
+  cursor: pointer;
+  font-size: 0.78rem;
+  line-height: 1.3;
+  padding: 3px 24px 3px 8px;
+  white-space: nowrap;
+  transition: background-color 0.15s, border-color 0.15s;
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: calc(100% - 12px) 50%, calc(100% - 7px) 50%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+
+.toolbar-select:hover,
+.toolbar-select:focus {
+  background-color: #3c3c3c;
+  border-color: #555;
+  outline: none;
+}
+
+.toolbar-select option,
+.toolbar-select optgroup {
+  background-color: #2d2d2d;
+  color: #cccccc;
+}
+
 .md-viewer-container.light .formatting-toolbar button {
+  color: #333333;
+}
+
+.md-viewer-container.light .toolbar-select {
+  color: #333333;
+}
+
+.md-viewer-container.light .toolbar-select:hover,
+.md-viewer-container.light .toolbar-select:focus {
+  background-color: #d4d4d4;
+  border-color: #bbb;
+}
+
+.md-viewer-container.light .toolbar-select option,
+.md-viewer-container.light .toolbar-select optgroup {
+  background-color: #ffffff;
   color: #333333;
 }
 
@@ -462,6 +509,107 @@ button.export-pdf:disabled {
 
 .md-viewer-container.light .preview-area pre code.json-highlight .json-token-punctuation,
 .md-viewer-container.light .preview-area pre .json-highlight .json-token-punctuation {
+  color: #24292f !important;
+}
+
+.preview-area pre code.xml-highlight,
+.preview-area pre .xml-highlight {
+  display: block;
+  padding: 0;
+  background: transparent !important;
+  color: #d4d4d4 !important;
+  white-space: pre;
+  tab-size: 4;
+  -moz-tab-size: 4;
+}
+
+.md-viewer-container.light .preview-area pre code.xml-highlight,
+.md-viewer-container.light .preview-area pre .xml-highlight {
+  background: transparent !important;
+  color: #24292f !important;
+}
+
+.preview-area pre code.xml-highlight .xml-token-tag-name,
+.preview-area pre .xml-highlight .xml-token-tag-name {
+  color: #569cd6 !important;
+  font-weight: 700;
+}
+
+.preview-area pre code.xml-highlight .xml-token-attr-name,
+.preview-area pre .xml-highlight .xml-token-attr-name {
+  color: #9cdcfe !important;
+}
+
+.preview-area pre code.xml-highlight .xml-token-attr-value,
+.preview-area pre .xml-highlight .xml-token-attr-value,
+.preview-area pre code.xml-highlight .xml-token-text,
+.preview-area pre .xml-highlight .xml-token-text {
+  color: #ce9178 !important;
+}
+
+.preview-area pre code.xml-highlight .xml-token-comment,
+.preview-area pre .xml-highlight .xml-token-comment {
+  color: #6a9955 !important;
+  font-style: italic;
+}
+
+.preview-area pre code.xml-highlight .xml-token-cdata,
+.preview-area pre code.xml-highlight .xml-token-doctype,
+.preview-area pre .xml-highlight .xml-token-cdata,
+.preview-area pre .xml-highlight .xml-token-doctype {
+  color: #dcdcaa !important;
+}
+
+.preview-area pre code.xml-highlight .xml-token-entity,
+.preview-area pre .xml-highlight .xml-token-entity {
+  color: #b5cea8 !important;
+}
+
+.preview-area pre code.xml-highlight .xml-token-operator,
+.preview-area pre code.xml-highlight .xml-token-punctuation,
+.preview-area pre .xml-highlight .xml-token-operator,
+.preview-area pre .xml-highlight .xml-token-punctuation {
+  color: #d4d4d4 !important;
+}
+
+.md-viewer-container.light .preview-area pre code.xml-highlight .xml-token-tag-name,
+.md-viewer-container.light .preview-area pre .xml-highlight .xml-token-tag-name {
+  color: #0550ae !important;
+}
+
+.md-viewer-container.light .preview-area pre code.xml-highlight .xml-token-attr-name,
+.md-viewer-container.light .preview-area pre .xml-highlight .xml-token-attr-name {
+  color: #953800 !important;
+}
+
+.md-viewer-container.light .preview-area pre code.xml-highlight .xml-token-attr-value,
+.md-viewer-container.light .preview-area pre .xml-highlight .xml-token-attr-value,
+.md-viewer-container.light .preview-area pre code.xml-highlight .xml-token-text,
+.md-viewer-container.light .preview-area pre .xml-highlight .xml-token-text {
+  color: #0a3069 !important;
+}
+
+.md-viewer-container.light .preview-area pre code.xml-highlight .xml-token-comment,
+.md-viewer-container.light .preview-area pre .xml-highlight .xml-token-comment {
+  color: #6e7781 !important;
+}
+
+.md-viewer-container.light .preview-area pre code.xml-highlight .xml-token-cdata,
+.md-viewer-container.light .preview-area pre code.xml-highlight .xml-token-doctype,
+.md-viewer-container.light .preview-area pre .xml-highlight .xml-token-cdata,
+.md-viewer-container.light .preview-area pre .xml-highlight .xml-token-doctype {
+  color: #8250df !important;
+}
+
+.md-viewer-container.light .preview-area pre code.xml-highlight .xml-token-entity,
+.md-viewer-container.light .preview-area pre .xml-highlight .xml-token-entity {
+  color: #116329 !important;
+}
+
+.md-viewer-container.light .preview-area pre code.xml-highlight .xml-token-operator,
+.md-viewer-container.light .preview-area pre code.xml-highlight .xml-token-punctuation,
+.md-viewer-container.light .preview-area pre .xml-highlight .xml-token-operator,
+.md-viewer-container.light .preview-area pre .xml-highlight .xml-token-punctuation {
   color: #24292f !important;
 }
 
