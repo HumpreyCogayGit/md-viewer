@@ -363,6 +363,70 @@ function beautifySqlSelection(text) {
   return formatSql(text);
 }
 
+// Use the same deterministic four-space indentation as SQL beautification.
+const JSON_INDENT = 4;
+
+function isLikelyJson(code) {
+  const text = code.trim();
+  if (!text || !/^[{[]/.test(text)) return false;
+
+  try {
+    JSON.parse(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function formatJson(json) {
+  return JSON.stringify(JSON.parse(json.trim()), null, JSON_INDENT);
+}
+
+function beautifyJsonSelection(text) {
+  const fencedCodeRegex = /(```([\w-]*)\s*\n)([\s\S]*?)(\n```)/gi;
+  if (fencedCodeRegex.test(text)) {
+    let formattedAnyBlock = false;
+    const formattedText = text.replace(fencedCodeRegex, (_, openingFence, language = '', code, closingFence) => {
+      const normalizedLanguage = language.toLowerCase();
+      const shouldFormat = ['json'].includes(normalizedLanguage)
+        || (!normalizedLanguage && isLikelyJson(code));
+
+      if (!shouldFormat) return `${openingFence}${code}${closingFence}`;
+
+      formattedAnyBlock = true;
+      return `${openingFence}${formatJson(code)}${closingFence}`;
+    });
+
+    if (!formattedAnyBlock) {
+      throw new Error('No valid JSON fenced code block found in the selection.');
+    }
+
+    return formattedText;
+  }
+
+  return formatJson(text);
+}
+
+function tokenizeJson(code) {
+  const rawTokens = Array.from(
+    code.matchAll(/("(?:\\.|[^"\\])*"|true|false|null|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|[{}\[\],:]|\s+|.)/g),
+    ([, value]) => value
+  );
+
+  return rawTokens.map((value, index) => {
+    if (/^\s+$/.test(value)) return { type: 'space', value };
+    if (/^"/.test(value)) {
+      const nextNonSpace = rawTokens.slice(index + 1).find((token) => !/^\s+$/.test(token));
+      return { type: nextNonSpace === ':' ? 'key' : 'string', value };
+    }
+    if (/^-?\d/.test(value)) return { type: 'number', value };
+    if (/^(true|false)$/.test(value)) return { type: 'boolean', value };
+    if (value === 'null') return { type: 'null', value };
+    if (/^[{}\[\],:]$/.test(value)) return { type: 'punctuation', value };
+    return { type: 'plain', value };
+  });
+}
+
 function SqlCodeBlock({ code, language }) {
   return (
     <code className={`language-${language} sql-highlight`}>
@@ -370,6 +434,18 @@ function SqlCodeBlock({ code, language }) {
         token.type === 'space'
           ? token.value
           : <span key={`${token.type}-${index}`} className={`sql-token sql-token-${token.type}`}>{token.value}</span>
+      ))}
+    </code>
+  );
+}
+
+function JsonCodeBlock({ code, language }) {
+  return (
+    <code className={`language-${language} json-highlight`}>
+      {tokenizeJson(code).map((token, index) => (
+        token.type === 'space'
+          ? token.value
+          : <span key={`${token.type}-${index}`} className={`json-token json-token-${token.type}`}>{token.value}</span>
       ))}
     </code>
   );
@@ -1022,6 +1098,67 @@ graph TD
     setTimeout(() => setCopyStatus(''), 3000);
   }, [markdownContent, getPreviewSelection, findInSource, updateContent]);
 
+  const handleBeautifyJson = useCallback(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    const showError = (message = 'Invalid JSON. Please highlight valid JSON data first.') => {
+      setCopyStatus(message);
+      setTimeout(() => setCopyStatus(''), 3000);
+    };
+
+    const previewSelection = lastFocusedPaneRef.current === 'preview' ? getPreviewSelection() : null;
+
+    if (previewSelection) {
+      const pos = findInSource(previewSelection);
+      if (pos) {
+        try {
+          const selectedSource = markdownContent.substring(pos.start, pos.end);
+          const formatted = beautifyJsonSelection(selectedSource);
+          const newText = markdownContent.substring(0, pos.start) + formatted + markdownContent.substring(pos.end);
+          updateContent(newText);
+          window.getSelection()?.removeAllRanges();
+          requestAnimationFrame(() => {
+            textarea.focus();
+            textarea.selectionStart = pos.start;
+            textarea.selectionEnd = pos.start + formatted.length;
+          });
+          setCopyStatus('JSON selection beautified!');
+          setTimeout(() => setCopyStatus(''), 3000);
+        } catch (err) {
+          showError(err.message);
+        }
+        return;
+      }
+    }
+
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const selected = markdownContent.substring(start, end);
+
+    if (!selected.trim()) {
+      showError('Highlight JSON data first, then click Beautify JSON.');
+      textarea.focus();
+      return;
+    }
+
+    try {
+      const formatted = beautifyJsonSelection(selected);
+      const newText = markdownContent.substring(0, start) + formatted + markdownContent.substring(end);
+      updateContent(newText);
+      requestAnimationFrame(() => {
+        textarea.focus();
+        textarea.selectionStart = start;
+        textarea.selectionEnd = start + formatted.length;
+      });
+      setCopyStatus('JSON selection beautified!');
+      setTimeout(() => setCopyStatus(''), 3000);
+    } catch (err) {
+      showError(err.message);
+      textarea.focus();
+    }
+  }, [markdownContent, getPreviewSelection, findInSource, updateContent]);
+
   // parseInline – handles bold, italic, bold+italic (both * and _ syntax),
   // strikethrough, inline code, links, autolinks, and plain text
   const parseInline = (text) => {
@@ -1496,6 +1633,9 @@ graph TD
           <button title="Beautify the highlighted SQL selection or SQL fenced code block" onClick={handleBeautifySql}>
             SQL Beautify
           </button>
+          <button title="Beautify the highlighted JSON selection or JSON fenced code block" onClick={handleBeautifyJson}>
+            JSON Beautify
+          </button>
         </div>
         <span className="toolbar-divider" />
         {/* Less frequent media and advanced inserts */}
@@ -1605,6 +1745,9 @@ graph TD
                     || (!language && isLikelySql(codeText))
                   )) {
                     return <SqlCodeBlock code={codeText} language={language || 'sql'} />;
+                  }
+                  if (!inline && (language === 'json' || (!language && isLikelyJson(codeText)))) {
+                    return <JsonCodeBlock code={codeText} language={language || 'json'} />;
                   }
                   return <code className={className} {...props}>{children}</code>;
                 }

@@ -393,6 +393,78 @@ button.export-pdf:disabled {
   color: #953800 !important;
 }
 
+.preview-area pre code.json-highlight,
+.preview-area pre .json-highlight {
+  display: block;
+  padding: 0;
+  background: transparent !important;
+  color: #d4d4d4 !important;
+  white-space: pre;
+  tab-size: 4;
+  -moz-tab-size: 4;
+}
+
+.md-viewer-container.light .preview-area pre code.json-highlight,
+.md-viewer-container.light .preview-area pre .json-highlight {
+  background: transparent !important;
+  color: #24292f !important;
+}
+
+.preview-area pre code.json-highlight .json-token-key,
+.preview-area pre .json-highlight .json-token-key {
+  color: #9cdcfe !important;
+}
+
+.preview-area pre code.json-highlight .json-token-string,
+.preview-area pre .json-highlight .json-token-string {
+  color: #ce9178 !important;
+}
+
+.preview-area pre code.json-highlight .json-token-number,
+.preview-area pre .json-highlight .json-token-number {
+  color: #b5cea8 !important;
+}
+
+.preview-area pre code.json-highlight .json-token-boolean,
+.preview-area pre code.json-highlight .json-token-null,
+.preview-area pre .json-highlight .json-token-boolean,
+.preview-area pre .json-highlight .json-token-null {
+  color: #569cd6 !important;
+  font-weight: 700;
+}
+
+.preview-area pre code.json-highlight .json-token-punctuation,
+.preview-area pre .json-highlight .json-token-punctuation {
+  color: #d4d4d4 !important;
+}
+
+.md-viewer-container.light .preview-area pre code.json-highlight .json-token-key,
+.md-viewer-container.light .preview-area pre .json-highlight .json-token-key {
+  color: #0550ae !important;
+}
+
+.md-viewer-container.light .preview-area pre code.json-highlight .json-token-string,
+.md-viewer-container.light .preview-area pre .json-highlight .json-token-string {
+  color: #0a3069 !important;
+}
+
+.md-viewer-container.light .preview-area pre code.json-highlight .json-token-number,
+.md-viewer-container.light .preview-area pre .json-highlight .json-token-number {
+  color: #116329 !important;
+}
+
+.md-viewer-container.light .preview-area pre code.json-highlight .json-token-boolean,
+.md-viewer-container.light .preview-area pre code.json-highlight .json-token-null,
+.md-viewer-container.light .preview-area pre .json-highlight .json-token-boolean,
+.md-viewer-container.light .preview-area pre .json-highlight .json-token-null {
+  color: #8250df !important;
+}
+
+.md-viewer-container.light .preview-area pre code.json-highlight .json-token-punctuation,
+.md-viewer-container.light .preview-area pre .json-highlight .json-token-punctuation {
+  color: #24292f !important;
+}
+
 /* Blockquote styling */
 .preview-area blockquote {
   margin: 12px 0;
