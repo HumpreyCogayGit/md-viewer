@@ -1155,9 +1155,24 @@ function XmlCodeBlock({ code, language }) {
 
 function App() {
   const [theme, setTheme] = useState('light');
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef(null);
   const toggleTheme = () => {
     setTheme((prevTheme) => (prevTheme === 'dark' ? 'light' : 'dark'));
   };
+  
+  // Close menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) {
+        setMenuOpen(false);
+      }
+    };
+    if (menuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [menuOpen]);
   const [markdownContent, setMarkdownContent] = useState(`# Welcome to Speculo
 
 Yet another Markdown viewer and editor, but this time this is built by me =P.
@@ -2629,227 +2644,331 @@ graph TD
 
   return (
     <div className={`md-viewer-container ${theme}`}>
-      <div className="sidebar">
-        {/* #16: Drop Zone (sidebar is a horizontal row, not left/right columns) */}
-        <div 
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onDrop={handleFileDrop} 
-          className={`drop-zone ${isFileDragging ? 'dragging' : ''}`}
-          onClick={() => fileInputRef.current?.click()}
-        >
-          <p>Drag & Drop or Click to load .md</p>
-        </div>
-        {/* #16: Action Buttons + Status */}
-        <div className="button-section">
-          <div className="button-group">
-            <button
-              onClick={handleDownloadMd}
-              className="download-md"
-              title="Download the current editor content as a Markdown (.md) file"
+      {/* Excalidraw-style Header Bar */}
+      <header className="app-header">
+        <div className="header-left">
+          {/* Hamburger Menu */}
+          <div className="hamburger-menu" ref={menuRef}>
+            <button 
+              className="hamburger-btn"
+              onClick={() => setMenuOpen(!menuOpen)}
+              title="Menu"
+              aria-label="Open menu"
             >
-              Save Raw MD File
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <line x1="3" y1="6" x2="21" y2="6" />
+                <line x1="3" y1="12" x2="21" y2="12" />
+                <line x1="3" y1="18" x2="21" y2="18" />
+              </svg>
             </button>
-            <button
-              onClick={handleCopy}
-              className="copy-toggle"
-              title="Copy the rendered preview text to your clipboard"
-            >
-              Copy to Clipboard
-            </button>
-            {/* #12: Disable button and show feedback while exporting */}
-            <button
-              onClick={handleExportPdf}
-              className="export-pdf"
-              disabled={isExporting}
-              title="Export the rendered Markdown preview as a PDF file"
-            >
-              {isExporting ? 'Exporting…' : 'Export to PDF'}
-            </button>
-            {/* Focus mode: maximize editor or preview */}
-            <button
-              onClick={() => setFocusMode(focusMode === 'none' ? focusTarget : 'none')}
-              title="Toggle focus mode to show only the editor or only the preview"
-            >
-              {focusMode !== 'none' ? 'Exit Focus' : 'Focus'}
-            </button>
-            <button
-              onClick={toggleTheme}
-              className="theme-toggle"
-              title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
-            >
-              {theme === 'dark' ? 'Light' : 'Dark'}
-            </button>
-            <button
-              onClick={() => setIsSyncing(!isSyncing)}
-              className="sync-toggle"
-              title={`${isSyncing ? 'Disable' : 'Enable'} synchronized scrolling between editor and preview`}
-            >
-              {isSyncing ? 'Sync On' : 'Sync Off'}
-            </button>
-          </div>
-
-          <div className="copy-status-message">
-            {copyStatus && (
-              <span style={{ color: copyStatus.includes('Failed') || copyStatus.includes('Only') ? '#ff6b6b' : '#51cf66' }}>
-                {copyStatus}
-              </span>
+            {menuOpen && (
+              <div className="dropdown-menu">
+                <div className="menu-section">
+                  <div className="menu-section-title">File</div>
+                  <div
+                    className="drop-zone-inline"
+                    onDragOver={handleDragOver}
+                    onDragLeave={handleDragLeave}
+                    onDrop={handleFileDrop}
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                      <polyline points="14 2 14 8 20 8" />
+                    </svg>
+                    <span>Open File...</span>
+                    <kbd>⌘O</kbd>
+                  </div>
+                  <button className="menu-item" onClick={() => { handleDownloadMd(); setMenuOpen(false); }}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <polyline points="7 10 12 15 17 10" />
+                      <line x1="12" y1="15" x2="12" y2="3" />
+                    </svg>
+                    <span>Save as Markdown</span>
+                    <kbd>⌘S</kbd>
+                  </button>
+                  <button 
+                    className="menu-item" 
+                    onClick={() => { handleExportPdf(); setMenuOpen(false); }}
+                    disabled={isExporting}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                      <polyline points="14 2 14 8 20 8" />
+                      <line x1="16" y1="13" x2="8" y2="13" />
+                      <line x1="16" y1="17" x2="8" y2="17" />
+                    </svg>
+                    <span>{isExporting ? 'Exporting…' : 'Export to PDF'}</span>
+                  </button>
+                </div>
+                <div className="menu-divider" />
+                <div className="menu-section">
+                  <div className="menu-section-title">Format Code</div>
+                  <div className="menu-submenu">
+                    <button className="menu-item" onClick={() => { handleBeautifySql(); setMenuOpen(false); }}>
+                      <span>Beautify SQL</span>
+                    </button>
+                    <button className="menu-item" onClick={() => { handleMinifySql(); setMenuOpen(false); }}>
+                      <span>Minify SQL</span>
+                    </button>
+                    <button className="menu-item" onClick={() => { handleBeautifyJson(); setMenuOpen(false); }}>
+                      <span>Beautify JSON</span>
+                    </button>
+                    <button className="menu-item" onClick={() => { handleMinifyJson(); setMenuOpen(false); }}>
+                      <span>Minify JSON</span>
+                    </button>
+                    <button className="menu-item" onClick={() => { handleBeautifyXml(); setMenuOpen(false); }}>
+                      <span>Beautify XML</span>
+                    </button>
+                    <button className="menu-item" onClick={() => { handleMinifyXml(); setMenuOpen(false); }}>
+                      <span>Minify XML</span>
+                    </button>
+                    <button className="menu-item" onClick={() => { handleBeautifyYaml(); setMenuOpen(false); }}>
+                      <span>Beautify YAML</span>
+                    </button>
+                    <button className="menu-item" onClick={() => { handleMinifyYaml(); setMenuOpen(false); }}>
+                      <span>Minify YAML</span>
+                    </button>
+                  </div>
+                </div>
+                <div className="menu-divider" />
+                <div className="menu-section">
+                  <div className="menu-section-title">Convert</div>
+                  <div className="menu-submenu">
+                    <button className="menu-item" onClick={() => { handleConvertData('json', 'xml'); setMenuOpen(false); }}>
+                      <span>JSON → XML</span>
+                    </button>
+                    <button className="menu-item" onClick={() => { handleConvertData('json', 'yaml'); setMenuOpen(false); }}>
+                      <span>JSON → YAML</span>
+                    </button>
+                    <button className="menu-item" onClick={() => { handleConvertData('xml', 'json'); setMenuOpen(false); }}>
+                      <span>XML → JSON</span>
+                    </button>
+                    <button className="menu-item" onClick={() => { handleConvertData('xml', 'yaml'); setMenuOpen(false); }}>
+                      <span>XML → YAML</span>
+                    </button>
+                    <button className="menu-item" onClick={() => { handleConvertData('yaml', 'json'); setMenuOpen(false); }}>
+                      <span>YAML → JSON</span>
+                    </button>
+                    <button className="menu-item" onClick={() => { handleConvertData('yaml', 'xml'); setMenuOpen(false); }}>
+                      <span>YAML → XML</span>
+                    </button>
+                  </div>
+                </div>
+                <div className="menu-divider" />
+                <div className="menu-section">
+                  <div className="menu-section-title">View</div>
+                  <button className="menu-item" onClick={() => { toggleTheme(); setMenuOpen(false); }}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      {theme === 'dark' ? (
+                        <><circle cx="12" cy="12" r="5" /><line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" /><line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" /><line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" /><line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" /></>
+                      ) : (
+                        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+                      )}
+                    </svg>
+                    <span>{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>
+                  </button>
+                  <button className="menu-item" onClick={() => { setIsSyncing(!isSyncing); setMenuOpen(false); }}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <polyline points="23 4 23 10 17 10" />
+                      <polyline points="1 20 1 14 7 14" />
+                      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+                    </svg>
+                    <span>Sync Scroll: {isSyncing ? 'On' : 'Off'}</span>
+                  </button>
+                </div>
+              </div>
             )}
           </div>
+          <div className="app-logo">
+            <span className="logo-text">Speculo</span>
+          </div>
         </div>
+        
+        <div className="header-center">
+          {/* File info */}
+          <div className="file-badge">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <polyline points="14 2 14 8 20 8" />
+            </svg>
+            <span className="file-name-header">{fileName}</span>
+            <span className="file-stats">{wordCount} words</span>
+          </div>
+        </div>
+        
+        <div className="header-right">
+          <button 
+            className="header-btn"
+            onClick={handleCopy}
+            title="Copy to clipboard"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+            </svg>
+          </button>
+          <button 
+            className="header-btn"
+            onClick={() => setFocusMode(focusMode === 'none' ? focusTarget : 'none')}
+            title={focusMode !== 'none' ? 'Exit focus mode' : 'Focus mode'}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              {focusMode !== 'none' ? (
+                <><polyline points="4 14 10 14 10 20" /><polyline points="20 10 14 10 14 4" /><line x1="14" y1="10" x2="21" y2="3" /><line x1="3" y1="21" x2="10" y2="14" /></>
+              ) : (
+                <><polyline points="15 3 21 3 21 9" /><polyline points="9 21 3 21 3 15" /><line x1="21" y1="3" x2="14" y2="10" /><line x1="3" y1="21" x2="10" y2="14" /></>
+              )}
+            </svg>
+          </button>
+        </div>
+      </header>
+      
+      {/* Hidden file input */}
+      <input type="file" ref={fileInputRef} accept=".md" onChange={handleFileSelect} style={{ display: 'none' }} />
+      
+      {/* Copy status toast */}
+      {copyStatus && (
+        <div className={`toast ${copyStatus.includes('Failed') || copyStatus.includes('Only') ? 'toast-error' : 'toast-success'}`}>
+          {copyStatus}
+        </div>
+      )}
 
-        {/* #15: Use ref instead of document.getElementById */}
-        <input type="file" ref={fileInputRef} accept=".md" onChange={handleFileSelect} style={{ display: 'none' }} />
-
-        {/* #16: File Info section */}
-        <div className="file-info">
-          {/* #17: Truncate long filenames */}
-          <p className="file-name" style={{margin: 0}}><strong>{fileName}</strong></p>
-          <p className="word-count" style={{margin: 0, opacity: 0.7}}>
-            {wordCount} words | {charCount} chars
-          </p>
+      {/* Floating Format Toolbar (Excalidraw-style) */}
+      <div className="floating-toolbar" onMouseDown={(e) => e.preventDefault()}>
+        <div className="toolbar-group">
+          <button className="tool-btn" title="Bold (⌘B)" onClick={() => insertMarkdown('**', '**', 'bold')}>
+            <span className="tool-text" style={{ fontWeight: 700 }}>B</span>
+          </button>
+          <button className="tool-btn" title="Italic (⌘I)" onClick={() => insertMarkdown('*', '*', 'italic')}>
+            <span className="tool-text" style={{ fontStyle: 'italic' }}>I</span>
+          </button>
+          <button className="tool-btn" title="Strikethrough" onClick={() => insertMarkdown('~~', '~~', 'strikethrough')}>
+            <span className="tool-text" style={{ textDecoration: 'line-through' }}>S</span>
+          </button>
+          <button className="tool-btn" title="Code" onClick={() => insertMarkdown('`', '`', 'code')}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <polyline points="16 18 22 12 16 6" />
+              <polyline points="8 6 2 12 8 18" />
+            </svg>
+          </button>
+        </div>
+        
+        <div className="toolbar-separator" />
+        
+        <div className="toolbar-group">
+          <button className="tool-btn" title="Heading 1" onClick={() => insertMarkdown('# ', '', 'Heading 1')}>
+            <span className="tool-text">H1</span>
+          </button>
+          <button className="tool-btn" title="Heading 2" onClick={() => insertMarkdown('## ', '', 'Heading 2')}>
+            <span className="tool-text">H2</span>
+          </button>
+          <button className="tool-btn" title="Heading 3" onClick={() => insertMarkdown('### ', '', 'Heading 3')}>
+            <span className="tool-text">H3</span>
+          </button>
+        </div>
+        
+        <div className="toolbar-separator" />
+        
+        <div className="toolbar-group">
+          <button className="tool-btn" title="Bulleted List" onClick={() => insertBlock('- List item')}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <line x1="9" y1="6" x2="20" y2="6" />
+              <line x1="9" y1="12" x2="20" y2="12" />
+              <line x1="9" y1="18" x2="20" y2="18" />
+              <circle cx="4" cy="6" r="1.5" fill="currentColor" />
+              <circle cx="4" cy="12" r="1.5" fill="currentColor" />
+              <circle cx="4" cy="18" r="1.5" fill="currentColor" />
+            </svg>
+          </button>
+          <button className="tool-btn" title="Numbered List" onClick={() => insertBlock('1. List item')}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <line x1="10" y1="6" x2="21" y2="6" />
+              <line x1="10" y1="12" x2="21" y2="12" />
+              <line x1="10" y1="18" x2="21" y2="18" />
+              <text x="2" y="8" fontSize="7" fill="currentColor" fontFamily="sans-serif">1</text>
+              <text x="2" y="14" fontSize="7" fill="currentColor" fontFamily="sans-serif">2</text>
+              <text x="2" y="20" fontSize="7" fill="currentColor" fontFamily="sans-serif">3</text>
+            </svg>
+          </button>
+          <button className="tool-btn" title="Task List" onClick={() => insertBlock('- [ ] Task item')}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <rect x="3" y="5" width="6" height="6" rx="1" />
+              <line x1="12" y1="8" x2="21" y2="8" />
+              <rect x="3" y="13" width="6" height="6" rx="1" />
+              <line x1="12" y1="16" x2="21" y2="16" />
+              <path d="M4.5 15.5l1.5 1.5 2.5-2.5" />
+            </svg>
+          </button>
+        </div>
+        
+        <div className="toolbar-separator" />
+        
+        <div className="toolbar-group">
+          <button className="tool-btn" title="Link" onClick={() => insertMarkdown('[', '](url)', 'link text')}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+            </svg>
+          </button>
+          <button className="tool-btn" title="Image" onClick={() => insertMarkdown('![', '](url)', 'alt text')}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+              <circle cx="8.5" cy="8.5" r="1.5" />
+              <polyline points="21 15 16 10 5 21" />
+            </svg>
+          </button>
+          <button className="tool-btn" title="Quote" onClick={() => insertMarkdown('> ', '', 'quote')}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V21" />
+              <path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3" />
+            </svg>
+          </button>
+          <button className="tool-btn" title="Table" onClick={() => insertBlock('| Header 1 | Header 2 |\n|----------|----------|\n| Cell 1   | Cell 2   |')}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <rect x="3" y="3" width="18" height="18" rx="2" />
+              <line x1="3" y1="9" x2="21" y2="9" />
+              <line x1="3" y1="15" x2="21" y2="15" />
+              <line x1="9" y1="3" x2="9" y2="21" />
+              <line x1="15" y1="3" x2="15" y2="21" />
+            </svg>
+          </button>
+          <button className="tool-btn" title="Code Block" onClick={() => insertBlock('```\ncode here\n```')}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <rect x="3" y="3" width="18" height="18" rx="2" />
+              <polyline points="8 8 4 12 8 16" />
+              <polyline points="16 8 20 12 16 16" />
+              <line x1="12" y1="6" x2="12" y2="18" />
+            </svg>
+          </button>
+          <button className="tool-btn" title="Horizontal Rule" onClick={() => insertBlock('---')}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <line x1="3" y1="12" x2="21" y2="12" />
+            </svg>
+          </button>
+        </div>
+        
+        <div className="toolbar-separator" />
+        
+        <div className="toolbar-group">
+          <button className="tool-btn" title="Inline Math" onClick={() => insertMarkdown('$', '$', 'E = mc^2')}>
+            <span className="tool-text">∑</span>
+          </button>
+          <button className="tool-btn" title="Block Math" onClick={() => insertBlock('$$\nx^2 + y^2 = z^2\n$$')}>
+            <span className="tool-text">∫</span>
+          </button>
+          <button className="tool-btn" title="Mermaid Diagram" onClick={() => insertBlock('```mermaid\ngraph TD\n    A[Start] --> B[End]\n```')}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M12 3v18" />
+              <path d="M5 10l7-7 7 7" />
+              <circle cx="5" cy="17" r="2" />
+              <circle cx="19" cy="17" r="2" />
+            </svg>
+          </button>
         </div>
       </div>
-      {/* WYSIWYG Formatting Toolbar */}
-      <div className="formatting-toolbar" onMouseDown={(e) => e.preventDefault()}>
-        {/* Frequent inline formatting */}
-        <div className="toolbar-group">
-          <button title="Make selected text bold using Markdown **bold** syntax" onClick={() => insertMarkdown('**', '**', 'bold')}>
-            <strong>B</strong>
-          </button>
-          <button title="Make selected text italic using Markdown *italic* syntax" onClick={() => insertMarkdown('*', '*', 'italic')}>
-            <em>I</em>
-          </button>
-          <button title="Insert or wrap selected text as a Markdown link" onClick={() => insertMarkdown('[', '](url)', 'link text')}>
-            &#128279; Link
-          </button>
-          <button title="Strike through selected text using Markdown ~~text~~ syntax" onClick={() => insertMarkdown('~~', '~~', 'strikethrough')}>
-            <s>S</s>
-          </button>
-          <button title="Format selected text as inline code using backticks" onClick={() => insertMarkdown('`', '`', 'code')}>
-            <code>&lt;/&gt;</code>
-          </button>
-        </div>
-        <span className="toolbar-divider" />
-        <div className="toolbar-group">
-          <button title="Insert a level 1 heading (# Heading)" onClick={() => insertMarkdown('# ', '', 'Heading 1')}>H1</button>
-          <button title="Insert a level 2 heading (## Heading)" onClick={() => insertMarkdown('## ', '', 'Heading 2')}>H2</button>
-          <button title="Insert a level 3 heading (### Heading)" onClick={() => insertMarkdown('### ', '', 'Heading 3')}>H3</button>
-        </div>
-        <span className="toolbar-divider" />
-        {/* Common document structure */}
-        <div className="toolbar-group">
-          <button title="Insert a bulleted Markdown list item" onClick={() => insertBlock('- List item')}>
-            &#8226; List
-          </button>
-          <button title="Insert a numbered Markdown list item" onClick={() => insertBlock('1. List item')}>
-            1. List
-          </button>
-          <button title="Insert a GitHub-style task checkbox item" onClick={() => insertBlock('- [ ] Task item')}>
-            &#9744; Task
-          </button>
-          <button title="Format selected text as a Markdown blockquote" onClick={() => insertMarkdown('> ', '', 'quote')}>
-            &#10077; Quote
-          </button>
-          <button title="Insert a simple two-column Markdown table" onClick={() => insertBlock('| Header 1 | Header 2 |\n|----------|----------|\n| Cell 1   | Cell 2   |')}>
-            &#9638; Table
-          </button>
-        </div>
-        <span className="toolbar-divider" />
-        {/* Code and technical writing */}
-        <div className="toolbar-group">
-          <button title="Insert a fenced code block for multi-line code snippets" onClick={() => insertBlock('```\ncode here\n```')}>
-            &#123;&#125; Code
-          </button>
-          <select
-            className="toolbar-select"
-            aria-label="Format selected code"
-            title="Beautify or minify the highlighted SQL, JSON, XML, or YAML selection"
-            value=""
-            onMouseDown={(e) => e.stopPropagation()}
-            onChange={(e) => {
-              const action = e.target.value;
-              if (action === 'beautify-sql') handleBeautifySql();
-              if (action === 'minify-sql') handleMinifySql();
-              if (action === 'beautify-json') handleBeautifyJson();
-              if (action === 'minify-json') handleMinifyJson();
-              if (action === 'beautify-xml') handleBeautifyXml();
-              if (action === 'minify-xml') handleMinifyXml();
-              if (action === 'beautify-yaml') handleBeautifyYaml();
-              if (action === 'minify-yaml') handleMinifyYaml();
-            }}
-          >
-            <option value="" disabled>Format Code</option>
-            <optgroup label="SQL">
-              <option value="beautify-sql">Beautify SQL</option>
-              <option value="minify-sql">Minify SQL</option>
-            </optgroup>
-            <optgroup label="JSON">
-              <option value="beautify-json">Beautify JSON</option>
-              <option value="minify-json">Minify JSON</option>
-            </optgroup>
-            <optgroup label="XML">
-              <option value="beautify-xml">Beautify XML</option>
-              <option value="minify-xml">Minify XML</option>
-            </optgroup>
-            <optgroup label="YAML">
-              <option value="beautify-yaml">Beautify YAML</option>
-              <option value="minify-yaml">Minify YAML</option>
-            </optgroup>
-          </select>
-          <select
-            className="toolbar-select"
-            aria-label="Convert selected data"
-            title="Convert highlighted JSON, XML, or YAML data to another supported format"
-            value=""
-            onMouseDown={(e) => e.stopPropagation()}
-            onChange={(e) => {
-              const [fromFormat, toFormat] = e.target.value.split('-to-');
-              if (fromFormat && toFormat) handleConvertData(fromFormat, toFormat);
-            }}
-          >
-            <option value="" disabled>Convert</option>
-            <optgroup label="From JSON">
-              <option value="json-to-xml">JSON → XML</option>
-              <option value="json-to-yaml">JSON → YAML</option>
-            </optgroup>
-            <optgroup label="From XML">
-              <option value="xml-to-json">XML → JSON</option>
-              <option value="xml-to-yaml">XML → YAML</option>
-            </optgroup>
-            <optgroup label="From YAML">
-              <option value="yaml-to-json">YAML → JSON</option>
-              <option value="yaml-to-xml">YAML → XML</option>
-            </optgroup>
-          </select>
-        </div>
-        <span className="toolbar-divider" />
-        {/* Less frequent media and advanced inserts */}
-        <div className="toolbar-group">
-          <select
-            className="toolbar-select"
-            aria-label="Insert advanced Markdown content"
-            title="Insert media, rules, math, or diagrams"
-            value=""
-            onMouseDown={(e) => e.stopPropagation()}
-            onChange={(e) => {
-              const action = e.target.value;
-              if (action === 'image') insertMarkdown('![', '](url)', 'alt text');
-              if (action === 'rule') insertBlock('---');
-              if (action === 'inline-math') insertMarkdown('$', '$', 'E = mc^2');
-              if (action === 'block-math') insertBlock('$$\nx^2 + y^2 = z^2\n$$');
-              if (action === 'mermaid') insertBlock('```mermaid\ngraph TD\n    A[Start] --> B[End]\n```');
-            }}
-          >
-            <option value="" disabled>Insert</option>
-            <option value="image">📷 Image</option>
-            <option value="rule">— Horizontal Rule</option>
-            <option value="inline-math">𝛘 Inline Math</option>
-            <option value="block-math">∑ Block Math</option>
-            <option value="mermaid">◇ Mermaid Diagram</option>
-          </select>
-        </div>
-      </div>
+
       <div className="editor-area">
         {/* Floating focus switch – upper right when in focus mode */}
         {focusMode !== 'none' && (
