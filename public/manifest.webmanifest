@@ -1,0 +1,13 @@
+{
+  "name": "Speculo",
+  "short_name": "Speculo",
+  "description": "Privacy-focused Markdown editor with local developer text and data tools.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#6965db",
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
