@@ -33,18 +33,18 @@
     "marked": "^18.2.0",
     "mermaid": "^12.3.0",
     "papaparse": "^5.7.1",
-    "pdfmake": "^0.2.7",
+    "pdfmake": "^0.3.14",
     "punycode": "^2.3.1",
     "qrcode-generator": "^2.0.4",
-    "react": "^19.2.5",
-    "react-dom": "^19.2.5",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
     "react-markdown": "^10.1.0",
     "rehype-katex": "^7.0.1",
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",
     "smol-toml": "^1.9.1",
     "turndown": "^7.2.5",
-    "yaml": "^2.9.0"
+    "yaml": "^2.9.1"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
